@@ -29,7 +29,7 @@ func flat(thbPerUSD float64) Rates {
 	return func(time.Time) (float64, error) { return thbPerUSD, nil }
 }
 
-// pay is a Standard payment at a Bangkok time; 2026-10-12 13:59 has ledger date 2026-10-12.
+// pay is a Standard payment at a Bangkok time; 2026-10-12 14:00 has ledger date 2026-10-12.
 func pay(booking string, thb float64, at string) grab.Payment {
 	t, err := time.ParseInLocation("2006-01-02 15:04", at, bkk)
 	if err != nil {
@@ -83,7 +83,7 @@ func match(t *testing.T, ps []grab.Payment, cs []ledger.Charge) Matching {
 }
 
 func TestMatchPairsExactAmount(t *testing.T) {
-	m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 13:59")}, []ledger.Charge{charge(1, 10.00, "2026-10-12")})
+	m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 14:00")}, []ledger.Charge{charge(1, 10.00, "2026-10-12")})
 	if got := pairs(m); got["A"] != 1 || len(got) != 1 {
 		t.Fatalf("pairs = %v, want A->1", got)
 	}
@@ -100,7 +100,7 @@ func TestMatchToleranceEdge(t *testing.T) {
 		{9.79, false},  // 2.15%
 	}
 	for _, tt := range tests {
-		m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 13:59")}, []ledger.Charge{charge(1, tt.usd, "2026-10-12")})
+		m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 14:00")}, []ledger.Charge{charge(1, tt.usd, "2026-10-12")})
 		if got := len(m.Pairs) == 1; got != tt.pair {
 			t.Errorf("charge $%.2f for $10.00 expected: paired %v, want %v", tt.usd, got, tt.pair)
 		}
@@ -118,7 +118,7 @@ func TestMatchPostingWindowEdge(t *testing.T) {
 		{"2026-10-16", false},
 	}
 	for _, tt := range tests {
-		m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 13:59")}, []ledger.Charge{charge(1, 10.00, tt.date)})
+		m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 14:00")}, []ledger.Charge{charge(1, 10.00, tt.date)})
 		if got := len(m.Pairs) == 1; got != tt.pair {
 			t.Errorf("charge dated %s: paired %v, want %v", tt.date, got, tt.pair)
 		}
@@ -127,7 +127,7 @@ func TestMatchPostingWindowEdge(t *testing.T) {
 
 func TestMatchInterchangeablePairs(t *testing.T) {
 	m := match(t,
-		[]grab.Payment{pay("A", 330, "2026-10-12 13:59"), pay("B", 330, "2026-10-12 15:46")},
+		[]grab.Payment{pay("A", 330, "2026-10-12 14:00"), pay("B", 330, "2026-10-12 16:00")},
 		[]ledger.Charge{charge(1, 10.00, "2026-10-12"), charge(2, 10.00, "2026-10-12")})
 	got := pairs(m)
 	if len(got) != 2 || got["A"] == got["B"] {
@@ -140,7 +140,7 @@ func TestMatchInterchangeablePairs(t *testing.T) {
 
 func TestMatchReportsLeftoversOnBothSides(t *testing.T) {
 	m := match(t,
-		[]grab.Payment{pay("A", 330, "2026-10-12 13:59"), pay("B", 990, "2026-10-12 15:00")},
+		[]grab.Payment{pay("A", 330, "2026-10-12 14:00"), pay("B", 990, "2026-10-12 15:00")},
 		[]ledger.Charge{charge(1, 10.00, "2026-10-12"), charge(2, 50.00, "2026-10-12")})
 	if got := pairs(m); got["A"] != 1 || len(got) != 1 {
 		t.Errorf("pairs = %v, want A->1", got)
@@ -155,7 +155,7 @@ func TestMatchReportsLeftoversOnBothSides(t *testing.T) {
 
 func TestMatchCompetingPaymentsCheaperWins(t *testing.T) {
 	m := match(t,
-		[]grab.Payment{pay("A", 330, "2026-10-12 13:59"), pay("B", 333.3, "2026-10-12 14:30")},
+		[]grab.Payment{pay("A", 330, "2026-10-12 14:00"), pay("B", 333.3, "2026-10-12 14:30")},
 		[]ledger.Charge{charge(1, 10.10, "2026-10-12")})
 	if got := pairs(m); got["B"] != 1 || len(got) != 1 {
 		t.Errorf("pairs = %v, want B->1 (exact) over A (0.99%% off)", got)
@@ -166,7 +166,7 @@ func TestMatchCompetingPaymentsCheaperWins(t *testing.T) {
 }
 
 func TestMatchNeverPairsCredit(t *testing.T) {
-	m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 13:59")}, []ledger.Charge{charge(1, -10.00, "2026-10-12")})
+	m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 14:00")}, []ledger.Charge{charge(1, -10.00, "2026-10-12")})
 	if len(m.Pairs) != 0 {
 		t.Fatalf("pairs = %v, want none for a credit", pairs(m))
 	}
@@ -176,7 +176,7 @@ func TestMatchNeverPairsCredit(t *testing.T) {
 }
 
 func TestMatchWithNoChargesLeavesEveryPaymentUnmatched(t *testing.T) {
-	m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 13:59")}, nil)
+	m := match(t, []grab.Payment{pay("A", 330, "2026-10-12 14:00")}, nil)
 	if len(m.Unmatched) != 1 || len(m.Pairs) != 0 {
 		t.Errorf("unmatched %v, pairs %v", bookings(m.Unmatched), pairs(m))
 	}
@@ -184,7 +184,7 @@ func TestMatchWithNoChargesLeavesEveryPaymentUnmatched(t *testing.T) {
 
 func TestMatchPropagatesRateError(t *testing.T) {
 	failing := func(time.Time) (float64, error) { return 0, errors.New("no rate") }
-	_, err := Match([]grab.Payment{pay("A", 330, "2026-10-12 13:59")}, []ledger.Charge{charge(1, 10, "2026-10-12")}, failing, ny)
+	_, err := Match([]grab.Payment{pay("A", 330, "2026-10-12 14:00")}, []ledger.Charge{charge(1, 10, "2026-10-12")}, failing, ny)
 	if err == nil {
 		t.Fatal("Match succeeded without a rate")
 	}

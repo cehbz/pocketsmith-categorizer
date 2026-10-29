@@ -73,7 +73,7 @@ func TestPostingWindowStartsOnTheLedgerDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := []struct{ name, at, first, last string }{
-		{"daylight time, 11 hours behind", "2026-10-12 13:59", "2026-10-12", "2026-10-15"},
+		{"daylight time, 11 hours behind", "2026-10-12 14:00", "2026-10-12", "2026-10-15"},
 		{"before DST ends", "2026-10-31 11:30", "2026-10-31", "2026-11-03"},
 		{"after DST ends, 12 hours behind", "2026-11-02 11:30", "2026-11-01", "2026-11-04"},
 		{"after DST ends, same day", "2026-11-02 12:30", "2026-11-02", "2026-11-05"},

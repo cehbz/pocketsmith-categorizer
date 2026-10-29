@@ -68,16 +68,17 @@ unclaimed charges (1):
 func TestWriteUndo(t *testing.T) {
 	var b strings.Builder
 	err := WriteUndo(&b, UndoRun{
-		RunID:   "R2",
-		Target:  "R1",
-		Changes: []categorize.Change{{Charge: 11}},
-		Applied: 1,
-		Skipped: []categorize.Change{{Charge: 12}},
+		RunID:     "R2",
+		Target:    "R1",
+		Changes:   []categorize.Change{{Charge: 11}},
+		Applied:   1,
+		Skipped:   []categorize.Change{{Charge: 12}},
+		Unchanged: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `run R2: undid 1 of 1 changes from run R1, skipped 1
+	want := `run R2: undid 1 of 1 changes from run R1, skipped 1, already restored 2
   charge 12: category changed since run R1, left as is
 `
 	if b.String() != want {

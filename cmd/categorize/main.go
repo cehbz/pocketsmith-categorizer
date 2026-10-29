@@ -61,7 +61,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	ps := &pocketsmith.Client{BaseURL: pocketsmith.DefaultBaseURL, Key: key, HTTP: &http.Client{Timeout: 30 * time.Second}}
-	changes, skipped, err := categorize.Undo(ctx, ps, entries)
+	changes, skipped, unchanged, err := categorize.Undo(ctx, ps, entries)
 	if err != nil {
 		return err
 	}
@@ -78,6 +78,6 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			applyErr = err
 		}
 	}
-	err = report.WriteUndo(out, report.UndoRun{RunID: runID, Target: target, Changes: changes, Applied: applied, Skipped: skipped})
+	err = report.WriteUndo(out, report.UndoRun{RunID: runID, Target: target, Changes: changes, Applied: applied, Skipped: skipped, Unchanged: unchanged})
 	return errors.Join(applyErr, err)
 }

@@ -28,15 +28,17 @@ func Apply(ctx context.Context, l Ledger, record func(Change) error, changes []C
 }
 
 // Undo returns the changes that reverse run, newest first. A charge whose category is no
-// longer the one the run set is skipped; one already back in its before state needs nothing.
-func Undo(ctx context.Context, l Ledger, run []Change) (changes, skipped []Change, err error) {
+// longer the one the run set is skipped; one already back in its before state needs nothing
+// and is counted as unchanged.
+func Undo(ctx context.Context, l Ledger, run []Change) (changes, skipped []Change, unchanged int, err error) {
 	for i := len(run) - 1; i >= 0; i-- {
 		c := run[i]
 		cur, err := l.Charge(ctx, c.Charge)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read charge %d: %w", c.Charge, err)
+			return nil, nil, 0, fmt.Errorf("read charge %d: %w", c.Charge, err)
 		}
 		if cur.State.Equal(c.Before) {
+			unchanged++
 			continue
 		}
 		if cur.State.Category != c.After.Category {
@@ -45,5 +47,5 @@ func Undo(ctx context.Context, l Ledger, run []Change) (changes, skipped []Chang
 		}
 		changes = append(changes, Change{Charge: c.Charge, Before: cur.State, After: c.Before})
 	}
-	return changes, skipped, nil
+	return changes, skipped, unchanged, nil
 }

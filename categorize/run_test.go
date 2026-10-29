@@ -100,9 +100,9 @@ func TestUndoRestoresTheBeforeState(t *testing.T) {
 	if _, err := Apply(context.Background(), l, record, run2); err != nil {
 		t.Fatal(err)
 	}
-	changes, skipped, err := Undo(context.Background(), l, run2)
-	if err != nil || len(skipped) != 0 {
-		t.Fatalf("Undo: %v, skipped %v", err, skipped)
+	changes, skipped, unchanged, err := Undo(context.Background(), l, run2)
+	if err != nil || len(skipped) != 0 || unchanged != 0 {
+		t.Fatalf("Undo: %v, skipped %v, unchanged %d", err, skipped, unchanged)
 	}
 	if len(changes) != 2 || changes[0].Charge != 2 || changes[1].Charge != 1 {
 		t.Fatalf("undo changes = %+v, want charges 2 then 1", changes)
@@ -121,9 +121,12 @@ func TestUndoSkipsAChargeEditedByHand(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.states[1] = ledger.State{Category: 42, Labels: []string{"grab-auto"}}
-	changes, skipped, err := Undo(context.Background(), l, run2)
+	changes, skipped, unchanged, err := Undo(context.Background(), l, run2)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if unchanged != 0 {
+		t.Errorf("unchanged = %d, want 0", unchanged)
 	}
 	if len(skipped) != 1 || skipped[0].Charge != 1 {
 		t.Errorf("skipped = %+v, want charge 1", skipped)
@@ -138,14 +141,14 @@ func TestUndoOfAnUndoReappliesTheRun(t *testing.T) {
 	if _, err := Apply(context.Background(), l, record, run2); err != nil {
 		t.Fatal(err)
 	}
-	undo, _, err := Undo(context.Background(), l, run2)
+	undo, _, _, err := Undo(context.Background(), l, run2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Apply(context.Background(), l, record, undo); err != nil {
 		t.Fatal(err)
 	}
-	redo, _, err := Undo(context.Background(), l, undo)
+	redo, _, _, err := Undo(context.Background(), l, undo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,9 +167,12 @@ func TestUndoAfterAnInterruptedRun(t *testing.T) {
 		t.Fatal("want the run to fail on charge 2")
 	}
 	l.failOn = 0
-	changes, skipped, err := Undo(context.Background(), l, *recorded)
+	changes, skipped, unchanged, err := Undo(context.Background(), l, *recorded)
 	if err != nil || len(skipped) != 0 {
 		t.Fatalf("Undo: %v, skipped %v", err, skipped)
+	}
+	if unchanged != 1 {
+		t.Errorf("unchanged = %d, want 1 (charge 2, never updated)", unchanged)
 	}
 	if len(changes) != 1 || changes[0].Charge != 1 {
 		t.Errorf("changes = %+v, want charge 1 only", changes)

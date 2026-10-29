@@ -83,3 +83,25 @@ func TestReadKeyFailsOnEmptyOrFailedOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	path := write(t, "config.toml", "lable = \"x\"\n"+full+"rid = 8\n", 0o600)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load accepted unknown keys")
+	}
+	if want := "config " + path + ": unknown keys lable, categories.rid"; err.Error() != want {
+		t.Errorf("error = %q, want %q", err, want)
+	}
+}
+
+func TestReadKeyReportsOpStderrButNotStdout(t *testing.T) {
+	op := write(t, "op", "#!/bin/sh\necho partial-secret\necho \"not signed in\" >&2\nexit 1\n", 0o755)
+	_, err := ReadKey(context.Background(), op, "op://Vault/Item/field")
+	if err == nil {
+		t.Fatal("ReadKey succeeded")
+	}
+	if want := "op read op://Vault/Item/field: exit status 1: not signed in"; err.Error() != want {
+		t.Errorf("error = %q, want %q", err, want)
+	}
+}

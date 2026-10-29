@@ -68,11 +68,3 @@ func TestChangesSkipsChargesAlreadyAtTarget(t *testing.T) {
 		t.Errorf("changes %v, correct %d; want none and 1", changes, correct)
 	}
 }
-
-func TestInverseSwapsBeforeAndAfter(t *testing.T) {
-	c := Change{Charge: 3, Before: ledger.State{Category: 1}, After: ledger.State{Category: 2}}
-	inv := c.Inverse()
-	if inv.Charge != 3 || inv.Before.Category != 2 || inv.After.Category != 1 {
-		t.Errorf("Inverse = %+v", inv)
-	}
-}

@@ -37,9 +37,6 @@ type Change struct {
 	After  ledger.State `json:"after"`
 }
 
-// Inverse is the change that undoes c.
-func (c Change) Inverse() Change { return Change{Charge: c.Charge, Before: c.After, After: c.Before} }
-
 // Changes returns a change for each pair whose charge isn't in its target state, and how many already are.
 func (p Policy) Changes(pairs []Pair) ([]Change, int) {
 	var changes []Change

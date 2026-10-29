@@ -76,12 +76,14 @@ type UndoRun struct {
 	Changes       []categorize.Change
 	Applied       int
 	Skipped       []categorize.Change
+	Unchanged     int // entries already in their before state
 }
 
 // WriteUndo prints the undo report.
 func WriteUndo(w io.Writer, r UndoRun) error {
 	p := &printer{w: w}
-	p.f("run %s: undid %d of %d changes from run %s, skipped %d\n", r.RunID, r.Applied, len(r.Changes), r.Target, len(r.Skipped))
+	p.f("run %s: undid %d of %d changes from run %s, skipped %d, already restored %d\n",
+		r.RunID, r.Applied, len(r.Changes), r.Target, len(r.Skipped), r.Unchanged)
 	for _, c := range r.Skipped {
 		p.f("  charge %d: category changed since run %s, left as is\n", c.Charge, r.Target)
 	}
