@@ -1,0 +1,18 @@
+# Copy to ~/.config/pocketsmith-categorizer/config.toml and fill in.
+
+# 1Password reference to the PocketSmith developer key.
+key_ref = "op://VAULT/ITEM/FIELD"
+
+# PocketSmith transaction account that carries the Grab charges.
+account_id = 0
+
+# Payees that mark a charge as Grab's.
+payees = ["WWW.GRAB.COM", "GRABTAXI"]
+
+# Label added to every charge the categorizer matches.
+label = "grab-auto"
+
+# PocketSmith category IDs.
+[categories]
+ride = 0
+delivery = 0
