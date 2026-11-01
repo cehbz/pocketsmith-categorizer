@@ -1,0 +1,15 @@
+# Copy to ~/.config/pocketsmith-categorizer/rules.toml. Rules are checked in order and the
+# first match decides. A rule needs a payee pattern or an account; every condition it has
+# must hold. Categories are PocketSmith category titles.
+
+[[rule]]
+payee = '(?i)^acme mobile\b'   # Go regular expression matched against the payee
+category = "Phone"
+
+[[rule]]
+payee = '(?i)^atm '
+account = "Checking"            # account name
+type = "debit"                  # "debit" or "credit"
+min = 100                       # smallest absolute amount
+max = 1000                      # largest absolute amount
+category = "Cash"

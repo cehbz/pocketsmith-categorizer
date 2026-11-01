@@ -125,3 +125,12 @@ func TestReadKeyReportsOpStderrButNotStdout(t *testing.T) {
 		t.Errorf("error = %q, want %q", err, want)
 	}
 }
+
+func TestRulesAndMemoPathsAreUnderHome(t *testing.T) {
+	if got := RulesPath("/h"); got != "/h/.config/pocketsmith-categorizer/rules.toml" {
+		t.Errorf("RulesPath = %q", got)
+	}
+	if got := MemoPath("/h"); got != "/h/.local/state/pocketsmith-categorizer/shown.json" {
+		t.Errorf("MemoPath = %q", got)
+	}
+}

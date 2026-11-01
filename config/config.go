@@ -113,3 +113,13 @@ func ReadKey(ctx context.Context, op, ref string) (string, error) {
 	}
 	return key, nil
 }
+
+// RulesPath is the private rules file under home.
+func RulesPath(home string) string {
+	return filepath.Join(home, ".config", "pocketsmith-categorizer", "rules.toml")
+}
+
+// MemoPath is the record of suggestions and proposals already shown, under home.
+func MemoPath(home string) string {
+	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "shown.json")
+}
