@@ -82,3 +82,81 @@ func TestStartRefusesToReuseARun(t *testing.T) {
 		t.Fatal("Start reopened an existing run")
 	}
 }
+func TestLastSetIsTheNewestRunsChange(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	for i, after := range []ledger.CategoryID{7, 8} {
+		r, err := s.Start(time.Date(2026, 10, 29+i, 12, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := change
+		c.After.Category = after
+		c.Source = "r"
+		if err := r.Record(c); err != nil {
+			t.Fatal(err)
+		}
+		r.Close()
+	}
+	got, err := s.LastSet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[11].After.Category != 8 || got[11].Source != "r" {
+		t.Errorf("LastSet[11] = %+v, want the second run's change", got[11])
+	}
+}
+
+func TestLastSetOfAnEmptyStoreIsEmpty(t *testing.T) {
+	got, err := Store{Dir: filepath.Join(t.TempDir(), "none")}.LastSet()
+	if err != nil || len(got) != 0 {
+		t.Errorf("LastSet = %v, %v", got, err)
+	}
+}
+
+func recordRun(t *testing.T, s Store, day int, source string, after ledger.CategoryID) string {
+	t.Helper()
+	r, err := s.Start(time.Date(2026, 10, day, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	c := change
+	c.After.Category = after
+	c.Source = source
+	if err := r.Record(c); err != nil {
+		t.Fatal(err)
+	}
+	return r.ID
+}
+
+func TestLastSetIgnoresAnUndoneOnlyRecord(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	first := recordRun(t, s, 1, "r", 7)
+	recordRun(t, s, 2, "undo "+first, 9)
+	got, err := s.LastSet()
+	if err != nil || len(got) != 0 {
+		t.Errorf("LastSet = %v, %v, want empty", got, err)
+	}
+}
+
+func TestLastSetFallsBackToTheRecordBeforeAnUndoneRun(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	recordRun(t, s, 1, "r1", 7)
+	second := recordRun(t, s, 2, "r2", 8)
+	recordRun(t, s, 3, "undo "+second, 7)
+	got, err := s.LastSet()
+	if err != nil || got[11].Source != "r1" {
+		t.Errorf("LastSet = %v, %v, want run 1's change", got, err)
+	}
+}
+
+func TestLastSetUndoOfUndoReactivatesTheRecord(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	first := recordRun(t, s, 1, "r1", 7)
+	undo := recordRun(t, s, 2, "undo "+first, 9)
+	recordRun(t, s, 3, "undo "+undo, 7)
+	got, err := s.LastSet()
+	if err != nil || got[11].Source != "r1" {
+		t.Errorf("LastSet = %v, %v, want run 1's change", got, err)
+	}
+}

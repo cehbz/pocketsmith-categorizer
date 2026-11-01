@@ -35,11 +35,12 @@ func (p Policy) Settle(cat ledger.CategoryID, current ledger.State) ledger.State
 	return ledger.State{Category: cat, NeedsReview: false, Labels: labels}
 }
 
-// Change moves one charge from one state to another.
+// Change moves one charge from one state to another; Source names what decided it.
 type Change struct {
 	Charge int64        `json:"charge"`
 	Before ledger.State `json:"before"`
 	After  ledger.State `json:"after"`
+	Source string       `json:"source,omitempty"`
 }
 
 // Changes returns a change for each pair whose charge isn't in its target state, and how many already are.

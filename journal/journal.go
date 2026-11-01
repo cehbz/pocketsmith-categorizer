@@ -84,3 +84,48 @@ func (s Store) Load(id string) ([]categorize.Change, error) {
 	}
 	return changes, sc.Err()
 }
+
+// LastSet returns, for each transaction, its last active non-undo change. An undo entry
+// (Source "undo <run ID>") deactivates that run's change to the transaction unless the undo's
+// own run was itself undone, so an undo of an undo reactivates the original. Undo entries are
+// never returned; a transaction with no active change is absent.
+func (s Store) LastSet() (map[int64]categorize.Change, error) {
+	names, err := filepath.Glob(filepath.Join(s.Dir, "*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(names)
+	type entry struct {
+		run string
+		c   categorize.Change
+	}
+	byTx := map[int64][]entry{}
+	for _, n := range names {
+		id := strings.TrimSuffix(filepath.Base(n), ".jsonl")
+		changes, err := s.Load(id)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range changes {
+			byTx[c.Charge] = append(byTx[c.Charge], entry{id, c})
+		}
+	}
+	out := map[int64]categorize.Change{}
+	for tx, entries := range byTx {
+		undone := map[string]bool{}
+		for i := len(entries) - 1; i >= 0; i-- {
+			e := entries[i]
+			if target, ok := strings.CutPrefix(e.c.Source, "undo "); ok {
+				if !undone[e.run] {
+					undone[target] = true
+				}
+				continue
+			}
+			if !undone[e.run] {
+				out[tx] = e.c
+				break
+			}
+		}
+	}
+	return out, nil
+}
