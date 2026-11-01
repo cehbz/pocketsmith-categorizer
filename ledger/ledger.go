@@ -3,6 +3,7 @@ package ledger
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -37,4 +38,50 @@ type Charge struct {
 	Date  time.Time // ledger date, midnight UTC
 	Payee string
 	State State
+}
+
+// Account is the transaction account a transaction belongs to.
+type Account struct {
+	ID   int64
+	Name string
+}
+
+// Transaction is one transaction on any account.
+type Transaction struct {
+	ID      int64
+	Date    time.Time // ledger date, midnight UTC
+	Amount  float64   // a debit is negative
+	Payee   string
+	Account Account
+	State   State
+}
+
+// Category is a PocketSmith category.
+type Category struct {
+	ID    CategoryID
+	Title string
+}
+
+// IsCategorizerLabel reports whether label marks a category the categorizer set.
+func IsCategorizerLabel(label string) bool {
+	return strings.HasPrefix(label, "auto-") || label == "grab-auto"
+}
+
+// Owned reports whether the categorizer owns the state's category.
+func (s State) Owned() bool { return slices.ContainsFunc(s.Labels, IsCategorizerLabel) }
+
+// UserLabels returns the state's labels that aren't the categorizer's.
+func (s State) UserLabels() []string {
+	var out []string
+	for _, l := range s.Labels {
+		if !IsCategorizerLabel(l) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// UserDecided reports whether the user categorized t: reviewed, categorized, not the categorizer's.
+func (t Transaction) UserDecided() bool {
+	return !t.State.NeedsReview && !t.State.Owned() && t.State.Category != 0
 }

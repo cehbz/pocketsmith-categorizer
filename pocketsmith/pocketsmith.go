@@ -17,6 +17,7 @@ type API interface {
 	Transactions(ctx context.Context, q api.Query) ([]api.Transaction, error)
 	Transaction(ctx context.Context, id int64) (api.Transaction, error)
 	Update(ctx context.Context, id int64, u api.Update) error
+	Categories(ctx context.Context, user int64) ([]api.Category, error)
 }
 
 // Ledger is the categorizer's ledger in PocketSmith.
@@ -74,4 +75,50 @@ func (l *Ledger) TimeZone(ctx context.Context) (*time.Location, error) {
 		return nil, err
 	}
 	return p.TimeZone, nil
+}
+
+func transaction(t api.Transaction) ledger.Transaction {
+	return ledger.Transaction{
+		ID:      t.ID,
+		Date:    t.Date,
+		Amount:  t.Amount,
+		Payee:   t.Payee,
+		Account: ledger.Account{ID: t.Account.ID, Name: t.Account.Name},
+		State:   charge(t).State,
+	}
+}
+
+// Transactions lists the user's transactions on every account dated first to last,
+// optionally only those needing review.
+func (l *Ledger) Transactions(ctx context.Context, first, last time.Time, needsReview bool) ([]ledger.Transaction, error) {
+	p, err := l.API.Profile(ctx)
+	if err != nil {
+		return nil, err
+	}
+	txs, err := l.API.Transactions(ctx, api.Query{User: p.ID, From: first, To: last, NeedsReview: needsReview})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ledger.Transaction, len(txs))
+	for i, t := range txs {
+		out[i] = transaction(t)
+	}
+	return out, nil
+}
+
+// Categories lists the user's categories.
+func (l *Ledger) Categories(ctx context.Context) ([]ledger.Category, error) {
+	p, err := l.API.Profile(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := l.API.Categories(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ledger.Category, len(cs))
+	for i, c := range cs {
+		out[i] = ledger.Category{ID: ledger.CategoryID(c.ID), Title: c.Title}
+	}
+	return out, nil
 }

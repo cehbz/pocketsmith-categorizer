@@ -4,3 +4,5 @@ github.com/cehbz/munkres v0.0.0-20261029130144-1ec8b6c3a159 h1:RTMwwZ7gRUAWhL6w/
 github.com/cehbz/munkres v0.0.0-20261029130144-1ec8b6c3a159/go.mod h1:dQD00isSswVAw8wbjhIFRQaxa3HlJKFGN0z1vvPa52I=
 github.com/cehbz/pocketsmith v0.1.0 h1:TovVrVDONEJDdx1B+l5Cj1PvOn847XCPKg5oMc0OSQc=
 github.com/cehbz/pocketsmith v0.1.0/go.mod h1:x5Ph5fEu1RBE7Bk6S9EpnVvIsPKatA9CM1a0QGrZcKM=
+github.com/cehbz/pocketsmith v0.2.0 h1:UIhe6+i4GH0l7a5c0+p1PKq3uyJmwHQKhQ6PpDVTf8s=
+github.com/cehbz/pocketsmith v0.2.0/go.mod h1:x5Ph5fEu1RBE7Bk6S9EpnVvIsPKatA9CM1a0QGrZcKM=

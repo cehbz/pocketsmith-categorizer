@@ -2,6 +2,8 @@ package pocketsmith
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 type fakeAPI struct {
 	txs     []api.Transaction
+	cats    []api.Category
 	query   api.Query
 	updated map[int64]api.Update
 	zone    *time.Location
@@ -116,5 +119,43 @@ func TestTimeZoneIsTheProfileZone(t *testing.T) {
 	loc, err := (&Ledger{API: &fakeAPI{zone: ny}}).TimeZone(context.Background())
 	if err != nil || loc != ny {
 		t.Errorf("TimeZone = %v, %v", loc, err)
+	}
+}
+
+func (f *fakeAPI) Categories(ctx context.Context, user int64) ([]api.Category, error) {
+	if user != 1 {
+		return nil, fmt.Errorf("user %d, want the profile's 1", user)
+	}
+	return f.cats, nil
+}
+
+func TestTransactionsQueriesTheUser(t *testing.T) {
+	f := &fakeAPI{txs: []api.Transaction{
+		{ID: 1, Date: mustDay(t, "2026-01-12"), Amount: -2.50, Payee: "CAFE", Category: &api.Category{ID: 9}, NeedsReview: true, Labels: []string{"x"}, Account: api.Account{ID: 7, Name: "Card"}},
+	}}
+	first, last := mustDay(t, "2026-01-01"), mustDay(t, "2026-01-31")
+	got, err := (&Ledger{API: f}).Transactions(context.Background(), first, last, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.query.User != 1 || f.query.Account != 0 || !f.query.From.Equal(first) || !f.query.To.Equal(last) || !f.query.NeedsReview {
+		t.Errorf("query = %+v", f.query)
+	}
+	want := ledger.Transaction{ID: 1, Date: mustDay(t, "2026-01-12"), Amount: -2.50, Payee: "CAFE", Account: ledger.Account{ID: 7, Name: "Card"},
+		State: ledger.State{Category: 9, NeedsReview: true, Labels: []string{"x"}}}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Errorf("Transactions = %+v, want %+v", got, want)
+	}
+}
+
+func TestCategoriesTranslates(t *testing.T) {
+	f := &fakeAPI{cats: []api.Category{{ID: 4, Title: "Rent"}, {ID: 9, Title: "Eating Out"}}}
+	got, err := (&Ledger{API: f}).Categories(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ledger.Category{{ID: 4, Title: "Rent"}, {ID: 9, Title: "Eating Out"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Categories = %+v, want %+v", got, want)
 	}
 }
