@@ -166,3 +166,10 @@ func TestUserRecategorizingAfterARecordedRunIsACorrection(t *testing.T) {
 		t.Errorf("plan = %+v", p)
 	}
 }
+
+func TestCorrectionIsExemptFromTheLookback(t *testing.T) {
+	p := Make([]ledger.Transaction{tx(1, "2020-02-01", ledger.State{Category: 5, Labels: []string{"auto-rule"}})}, []Layer{to9}, map[int64]categorize.Change{1: rec(9)}, since)
+	if len(p.Corrections) != 1 {
+		t.Errorf("plan = %+v", p)
+	}
+}
