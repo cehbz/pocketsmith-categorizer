@@ -130,6 +130,8 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 	for _, a := range amendments {
 		shown.Add(amendmentKey(a.Charge, a.Source))
+		// The amendment already showed this rule disagreeing; don't raise it again as a suggestion.
+		shown.Add(decide.Suggestion{Transaction: byID[a.Charge], Decision: decide.Decision{Category: a.Before.Category, Source: a.Source}}.Key())
 	}
 	for _, p := range proposals {
 		shown.Add(p.ID())
