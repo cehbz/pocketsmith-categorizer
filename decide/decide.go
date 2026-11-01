@@ -41,7 +41,8 @@ type Plan struct {
 }
 
 // Make plans a run over txs. set holds the change the journal last recorded for each
-// transaction; a state that differs from the record's After and from its Before is the user's correction; since is the first date of the lookback.
+// transaction; a state that differs from the record's After and from its Before is the user's correction, whatever its date; since is the first date of the lookback
+// for re-deciding.
 func Make(txs []ledger.Transaction, layers []Layer, set map[int64]categorize.Change, since time.Time) Plan {
 	var p Plan
 	for _, t := range txs {

@@ -85,10 +85,14 @@ func (s Store) Load(id string) ([]categorize.Change, error) {
 	return changes, sc.Err()
 }
 
-// LastSet returns, for each transaction, its last active non-undo change. An undo entry
-// (Source "undo <run ID>") deactivates that run's change to the transaction unless the undo's
-// own run was itself undone, so an undo of an undo reactivates the original. Undo entries are
-// never returned; a transaction with no active change is absent.
+const undoPrefix = "undo "
+
+// LastSet returns, for each transaction, the category the journal last recorded the
+// categorizer setting: its last active non-undo change whose After is categorizer-owned. An
+// undo entry (Source UndoSource(run ID)) deactivates that run's change to the transaction
+// unless the undo's own run was itself undone, so an undo of an undo reactivates the original.
+// Undo entries and records that are not owned (a user's correction) are never returned; a
+// transaction with no such change is absent.
 func (s Store) LastSet() (map[int64]categorize.Change, error) {
 	names, err := filepath.Glob(filepath.Join(s.Dir, "*.jsonl"))
 	if err != nil {
@@ -115,13 +119,13 @@ func (s Store) LastSet() (map[int64]categorize.Change, error) {
 		undone := map[string]bool{}
 		for i := len(entries) - 1; i >= 0; i-- {
 			e := entries[i]
-			if target, ok := strings.CutPrefix(e.c.Source, "undo "); ok {
+			if target, ok := strings.CutPrefix(e.c.Source, undoPrefix); ok {
 				if !undone[e.run] {
 					undone[target] = true
 				}
 				continue
 			}
-			if !undone[e.run] {
+			if !undone[e.run] && e.c.After.Owned() {
 				out[tx] = e.c
 				break
 			}
@@ -129,3 +133,6 @@ func (s Store) LastSet() (map[int64]categorize.Change, error) {
 	}
 	return out, nil
 }
+
+// UndoSource is the Source of an entry that undoes run runID.
+func UndoSource(runID string) string { return undoPrefix + runID }

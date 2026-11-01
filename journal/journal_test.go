@@ -160,3 +160,48 @@ func TestLastSetUndoOfUndoReactivatesTheRecord(t *testing.T) {
 		t.Errorf("LastSet = %v, %v, want run 1's change", got, err)
 	}
 }
+
+func recordState(t *testing.T, s Store, day int, source string, after ledger.State) string {
+	t.Helper()
+	r, err := s.Start(time.Date(2026, 10, day, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	c := change
+	c.After = after
+	c.Source = source
+	if err := r.Record(c); err != nil {
+		t.Fatal(err)
+	}
+	return r.ID
+}
+
+func TestLastSetSkipsRecordsTheCategorizerDoesNotOwn(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	recordState(t, s, 1, "r1", ledger.State{Category: 9, Labels: []string{"auto-rule"}})
+	recordState(t, s, 2, "", ledger.State{Category: 5})
+	got, err := s.LastSet()
+	if err != nil || got[11].Source != "r1" {
+		t.Errorf("LastSet = %v, %v, want run 1's change", got, err)
+	}
+}
+
+func TestLastSetOmitsATransactionWhoseOnlyRecordIsNotOwned(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	recordState(t, s, 1, "", ledger.State{Category: 5})
+	got, err := s.LastSet()
+	if err != nil || len(got) != 0 {
+		t.Errorf("LastSet = %v, %v, want empty", got, err)
+	}
+}
+
+func TestUndoSourceDeactivatesTheNamedRun(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	first := recordState(t, s, 1, "r1", ledger.State{Category: 9, Labels: []string{"auto-rule"}})
+	recordState(t, s, 2, UndoSource(first), ledger.State{Category: 3})
+	got, err := s.LastSet()
+	if err != nil || len(got) != 0 {
+		t.Errorf("LastSet = %v, %v, want empty", got, err)
+	}
+}

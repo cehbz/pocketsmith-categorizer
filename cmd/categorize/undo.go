@@ -54,7 +54,7 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	for i := range changes {
-		changes[i].Source = "undo " + target
+		changes[i].Source = journal.UndoSource(target)
 	}
 	runID := "(none)"
 	applied, applyErr := 0, error(nil)
