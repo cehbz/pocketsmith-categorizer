@@ -2,65 +2,76 @@ package pocketsmith
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
+	"time"
+
+	api "github.com/cehbz/pocketsmith"
 
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
-const key = "test-key"
-
-func server(t *testing.T, handlers map[string]http.HandlerFunc) (*Client, *httptest.Server) {
-	t.Helper()
-	mux := http.NewServeMux()
-	for pattern, h := range handlers {
-		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("X-Developer-Key") != key {
-				t.Errorf("%s %s without the developer key", r.Method, r.URL.Path)
-			}
-			h(w, r)
-		})
-	}
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return &Client{BaseURL: srv.URL, Key: key, HTTP: srv.Client()}, srv
+type fakeAPI struct {
+	txs     []api.Transaction
+	query   api.Query
+	updated map[int64]api.Update
+	zone    *time.Location
 }
 
-func TestChargesPagesAndFiltersPayees(t *testing.T) {
-	var srvURL string
-	c, srv := server(t, map[string]http.HandlerFunc{
-		"GET /transaction_accounts/7/transactions": func(w http.ResponseWriter, r *http.Request) {
-			q := r.URL.Query()
-			if q.Get("page") == "2" {
-				w.Write([]byte(`[{"id":3,"date":"2026-10-13","amount":-1.25,"payee":"WWW.GRAB.COM","category":null,"needs_review":true,"labels":[]}]`))
-				return
-			}
-			if q.Get("start_date") != "2026-10-01" || q.Get("end_date") != "2026-10-31" || q.Get("per_page") != "100" {
-				t.Errorf("query %s", r.URL.RawQuery)
-			}
-			w.Header().Set("Link", fmt.Sprintf(`<%s/transaction_accounts/7/transactions?page=2>; rel="next"`, srvURL))
-			w.Write([]byte(`[
-				{"id":1,"date":"2026-10-12","amount":-2.50,"payee":"WWW.GRAB.COM","category":{"id":9,"title":"Food"},"needs_review":false,"labels":["x"]},
-				{"id":2,"date":"2026-10-12","amount":-40.00,"payee":"SOMEWHERE ELSE","category":{"id":4},"needs_review":false,"labels":[]}
-			]`))
-		},
-	})
-	srvURL = srv.URL
-	first, _ := day.Parse("2026-10-01")
-	last, _ := day.Parse("2026-10-31")
-	got, err := c.Charges(context.Background(), 7, first, last, []string{"WWW.GRAB.COM", "GRABTAXI"})
+func (f *fakeAPI) Profile(ctx context.Context) (api.Profile, error) {
+	return api.Profile{ID: 1, TimeZone: f.zone}, nil
+}
+
+func (f *fakeAPI) Transactions(ctx context.Context, q api.Query) ([]api.Transaction, error) {
+	f.query = q
+	return f.txs, nil
+}
+
+func (f *fakeAPI) Transaction(ctx context.Context, id int64) (api.Transaction, error) {
+	for _, t := range f.txs {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return api.Transaction{}, nil
+}
+
+func (f *fakeAPI) Update(ctx context.Context, id int64, u api.Update) error {
+	if f.updated == nil {
+		f.updated = map[int64]api.Update{}
+	}
+	f.updated[id] = u
+	return nil
+}
+
+func mustDay(t *testing.T, s string) time.Time {
+	t.Helper()
+	d, err := day.Parse(s)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return d
+}
+
+func TestChargesQueriesTheAccountAndKeepsThePayees(t *testing.T) {
+	f := &fakeAPI{txs: []api.Transaction{
+		{ID: 1, Date: mustDay(t, "2026-01-12"), Amount: -2.50, Payee: "WWW.GRAB.COM", Category: &api.Category{ID: 9}, Labels: []string{"x"}},
+		{ID: 2, Date: mustDay(t, "2026-01-12"), Amount: -40, Payee: "SOMEWHERE ELSE", Category: &api.Category{ID: 4}},
+		{ID: 3, Date: mustDay(t, "2026-01-13"), Amount: -1.25, Payee: "GRABTAXI", NeedsReview: true},
+	}}
+	l := &Ledger{API: f}
+	first, last := mustDay(t, "2026-01-01"), mustDay(t, "2026-01-31")
+	got, err := l.Charges(context.Background(), 7, first, last, []string{"WWW.GRAB.COM", "GRABTAXI"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.query.Account != 7 || f.query.User != 0 || !f.query.From.Equal(first) || !f.query.To.Equal(last) || f.query.NeedsReview {
+		t.Errorf("query = %+v", f.query)
 	}
 	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 3 {
 		t.Fatalf("charges = %+v, want IDs 1 and 3", got)
 	}
-	if got[0].USD != 2.50 || day.Format(got[0].Date) != "2026-10-12" || got[0].Payee != "WWW.GRAB.COM" {
+	if got[0].USD != 2.50 || day.Format(got[0].Date) != "2026-01-12" || got[0].Payee != "WWW.GRAB.COM" {
 		t.Errorf("charge 1 = %+v", got[0])
 	}
 	if !got[0].State.Equal(ledger.State{Category: 9, Labels: []string{"x"}}) {
@@ -71,98 +82,39 @@ func TestChargesPagesAndFiltersPayees(t *testing.T) {
 	}
 }
 
-func TestChargeReadsOneTransaction(t *testing.T) {
-	c, _ := server(t, map[string]http.HandlerFunc{
-		"GET /transactions/5": func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"id":5,"date":"2026-10-12","amount":-2.75,"payee":"WWW.GRAB.COM","category":{"id":7},"needs_review":false,"labels":["grab-auto"]}`))
-		},
-	})
-	got, err := c.Charge(context.Background(), 5)
+func TestChargeTranslatesOneTransaction(t *testing.T) {
+	f := &fakeAPI{txs: []api.Transaction{{ID: 5, Date: mustDay(t, "2026-01-12"), Amount: -2.75, Payee: "WWW.GRAB.COM", Category: &api.Category{ID: 7}, Labels: []string{"grab-auto"}}}}
+	got, err := (&Ledger{API: f}).Charge(context.Background(), 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != 5 || !got.State.Equal(ledger.State{Category: 7, Labels: []string{"grab-auto"}}) {
+	if got.ID != 5 || got.USD != 2.75 || !got.State.Equal(ledger.State{Category: 7, Labels: []string{"grab-auto"}}) {
 		t.Errorf("Charge = %+v", got)
 	}
 }
 
-func updateBody(t *testing.T, s ledger.State) map[string]any {
-	t.Helper()
-	var body map[string]any
-	c, _ := server(t, map[string]http.HandlerFunc{
-		"PUT /transactions/5": func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Content-Type") != "application/json" {
-				t.Errorf("content type %q", r.Header.Get("Content-Type"))
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Error(err)
-			}
-			w.Write([]byte(`{"id":5}`))
-		},
-	})
-	if err := c.Update(context.Background(), 5, s); err != nil {
+func TestUpdateSendsTheState(t *testing.T) {
+	f := &fakeAPI{}
+	l := &Ledger{API: f}
+	if err := l.Update(context.Background(), 5, ledger.State{Category: 7, NeedsReview: false, Labels: []string{"x", "grab-auto"}}); err != nil {
 		t.Fatal(err)
 	}
-	return body
-}
-
-func TestUpdateSendsCategoryReviewAndLabels(t *testing.T) {
-	body := updateBody(t, ledger.State{Category: 7, NeedsReview: false, Labels: []string{"x", "grab-auto"}})
-	if body["category_id"] != float64(7) || body["needs_review"] != false || body["labels"] != "x,grab-auto" {
-		t.Errorf("body = %v", body)
-	}
-}
-
-func TestUpdateSendsEmptyLabelsAndUncategorized(t *testing.T) {
-	body := updateBody(t, ledger.State{Category: 0, NeedsReview: true})
-	labels, ok := body["labels"]
-	if !ok || labels != "" {
-		t.Errorf("labels = %v (present %v), want an empty string", labels, ok)
-	}
-	if body["category_id"] != "" || body["needs_review"] != true {
-		t.Errorf("body = %v", body)
-	}
-}
-
-func TestErrorStatusIsReportedWithoutTheKey(t *testing.T) {
-	c, _ := server(t, map[string]http.HandlerFunc{
-		"GET /transactions/5": func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, `{"error":"nope"}`, http.StatusForbidden)
-		},
-	})
-	_, err := c.Charge(context.Background(), 5)
-	if err == nil || !strings.Contains(err.Error(), "403") {
-		t.Fatalf("err = %v, want a 403", err)
-	}
-	if strings.Contains(err.Error(), key) {
-		t.Errorf("error leaks the key: %v", err)
-	}
-}
-
-func TestTimeZoneResolvesTheProfileZone(t *testing.T) {
-	c, _ := server(t, map[string]http.HandlerFunc{
-		"GET /me": func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"id":1,"time_zone":"Eastern Time (US & Canada)"}`))
-		},
-		"GET /time_zones": func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`[{"name":"Hawaii","identifier":"Pacific/Honolulu"},{"name":"Eastern Time (US & Canada)","identifier":"America/New_York"}]`))
-		},
-	})
-	loc, err := c.TimeZone(context.Background())
-	if err != nil {
+	if err := l.Update(context.Background(), 6, ledger.State{Category: 0, NeedsReview: true}); err != nil {
 		t.Fatal(err)
 	}
-	if loc.String() != "America/New_York" {
-		t.Errorf("TimeZone = %s", loc)
+	u5, u6 := f.updated[5], f.updated[6]
+	if u5.Category != 7 || u5.NeedsReview || len(u5.Labels) != 2 || u5.Labels[1] != "grab-auto" {
+		t.Errorf("update 5 = %+v", u5)
+	}
+	if u6.Category != 0 || !u6.NeedsReview || len(u6.Labels) != 0 {
+		t.Errorf("update 6 = %+v", u6)
 	}
 }
 
-func TestTimeZoneFailsOnAnUnknownName(t *testing.T) {
-	c, _ := server(t, map[string]http.HandlerFunc{
-		"GET /me":         func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"time_zone":"Nowhere"}`)) },
-		"GET /time_zones": func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`[]`)) },
-	})
-	if _, err := c.TimeZone(context.Background()); err == nil {
-		t.Fatal("TimeZone succeeded for an unknown zone")
+func TestTimeZoneIsTheProfileZone(t *testing.T) {
+	ny, _ := time.LoadLocation("America/New_York")
+	loc, err := (&Ledger{API: &fakeAPI{zone: ny}}).TimeZone(context.Background())
+	if err != nil || loc != ny {
+		t.Errorf("TimeZone = %v, %v", loc, err)
 	}
 }

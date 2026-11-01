@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	api "github.com/cehbz/pocketsmith"
+
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/fx"
@@ -52,7 +54,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	ps := &pocketsmith.Client{BaseURL: pocketsmith.DefaultBaseURL, Key: key, HTTP: httpClient}
+	ps := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: httpClient}}
 	loc, err := ps.TimeZone(ctx)
 	if err != nil {
 		return err

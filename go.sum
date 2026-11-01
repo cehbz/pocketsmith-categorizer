@@ -2,3 +2,5 @@ github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/cehbz/munkres v0.0.0-20261029130144-1ec8b6c3a159 h1:RTMwwZ7gRUAWhL6w/sQtdG9Wz/9wwvNIGjURFuQqEZc=
 github.com/cehbz/munkres v0.0.0-20261029130144-1ec8b6c3a159/go.mod h1:dQD00isSswVAw8wbjhIFRQaxa3HlJKFGN0z1vvPa52I=
+github.com/cehbz/pocketsmith v0.1.0 h1:TovVrVDONEJDdx1B+l5Cj1PvOn847XCPKg5oMc0OSQc=
+github.com/cehbz/pocketsmith v0.1.0/go.mod h1:x5Ph5fEu1RBE7Bk6S9EpnVvIsPKatA9CM1a0QGrZcKM=

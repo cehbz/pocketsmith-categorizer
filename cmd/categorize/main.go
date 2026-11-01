@@ -11,6 +11,8 @@ import (
 	"os"
 	"time"
 
+	api "github.com/cehbz/pocketsmith"
+
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/journal"
@@ -60,7 +62,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ps := &pocketsmith.Client{BaseURL: pocketsmith.DefaultBaseURL, Key: key, HTTP: &http.Client{Timeout: 30 * time.Second}}
+	ps := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: &http.Client{Timeout: 30 * time.Second}}}
 	changes, skipped, unchanged, err := categorize.Undo(ctx, ps, entries)
 	if err != nil {
 		return err
