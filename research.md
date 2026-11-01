@@ -33,3 +33,11 @@ ECB rates, 2% tolerance, greedy matching:
 - One trip has a ฿0 total (a promo ride) and puts no charge on the card.
 - 14 of 509 trips print the service label off the amount line ("Standard" above it, "(JustGrab)" below).
 - 64 trips wrap the booking ID: "A-" on the trip's first line, the rest on a later line.
+
+## Statement amounts and card charges
+
+Checked against the Grab app's per-order payment breakdown for two GrabMart orders.
+
+- A statement amount is the order total after fees and coupons, before coins. The card is charged the statement amount less any coins redeemed; an order paid partly in coins matches no charge within the 2% tolerance.
+- A tip is a separate card charge. The app's card total for an order includes it; the statement and the order's own charge don't.
+- Unclaimed charges after order matching (May–Oct 2026, 536): 331 within 2% of ฿60, 110 of ฿50, 52 of ฿20, 43 other. Per month the ฿60 count tracks both accounts' rides, ฿50 one account's deliveries and ฿20 the other's, each within a few, so a tip's amount gives its kind without assigning it to an order.
