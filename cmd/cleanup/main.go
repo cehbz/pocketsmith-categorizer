@@ -94,7 +94,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	changes, correct := cfg.Policy().Changes(m.Pairs)
+	policy := cfg.Policy()
+	changes, correct := policy.Changes(m.Pairs)
+	tipChanges, tipCorrect, rest, err := settleTips(policy, cfg.Tips, rates.THBPerUSD, m.Unclaimed)
+	if err != nil {
+		return err
+	}
+	changes, correct, m.Unclaimed = append(changes, tipChanges...), correct+tipCorrect, rest
 	runID := "(none)"
 	applied, applyErr := 0, error(nil)
 	if len(changes) > 0 {

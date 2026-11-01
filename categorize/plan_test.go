@@ -40,6 +40,14 @@ func TestTargetKeepsAnExistingLabelOnce(t *testing.T) {
 	}
 }
 
+func TestSettleSetsTheGivenCategoryClearsReviewAddsLabel(t *testing.T) {
+	got := policy.Settle(9, ledger.State{Category: 7, NeedsReview: true, Labels: []string{"x"}})
+	want := ledger.State{Category: 9, NeedsReview: false, Labels: []string{"x", "grab-auto"}}
+	if !got.Equal(want) {
+		t.Errorf("Settle = %+v, want %+v", got, want)
+	}
+}
+
 func TestChangesProposesTheTargetState(t *testing.T) {
 	pairs := []Pair{{
 		Payment: grab.Payment{Service: "Standard"},

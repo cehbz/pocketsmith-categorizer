@@ -25,12 +25,19 @@ type Config struct {
 	Payees     []string   `toml:"payees"`
 	Label      string     `toml:"label"`
 	Categories Categories `toml:"categories"`
+	Tips       Tips       `toml:"tips"`
 }
 
 // Categories are the PocketSmith category IDs for each kind of service.
 type Categories struct {
 	Ride     int64 `toml:"ride"`
 	Delivery int64 `toml:"delivery"`
+}
+
+// Tips are the tip amounts in THB for each kind of service.
+type Tips struct {
+	Ride     []float64 `toml:"ride"`
+	Delivery []float64 `toml:"delivery"`
 }
 
 // Load reads and checks a config file.

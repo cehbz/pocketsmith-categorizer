@@ -45,6 +45,26 @@ func TestLoadReadsEveryFieldAndDefaultsTheLabel(t *testing.T) {
 	}
 }
 
+func TestLoadReadsIntegerTipAmounts(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full+"\n[tips]\nride = [60]\ndelivery = [20, 50]\n", 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(c.Tips.Ride, []float64{60}) || !slices.Equal(c.Tips.Delivery, []float64{20, 50}) {
+		t.Errorf("tips = %+v, want ride [60], delivery [20 50]", c.Tips)
+	}
+}
+
+func TestLoadWithoutTipsHasNone(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Tips.Ride) != 0 || len(c.Tips.Delivery) != 0 {
+		t.Errorf("tips = %+v, want none", c.Tips)
+	}
+}
+
 func TestLoadNamesMissingFields(t *testing.T) {
 	_, err := Load(write(t, "config.toml", `label = "x"`, 0o600))
 	if err == nil {

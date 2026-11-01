@@ -23,11 +23,16 @@ func (p Policy) CategoryFor(pay grab.Payment) ledger.CategoryID {
 
 // Target is the state a charge matched to pay should have: its category, no review, the run label.
 func (p Policy) Target(pay grab.Payment, current ledger.State) ledger.State {
+	return p.Settle(p.CategoryFor(pay), current)
+}
+
+// Settle is the state a charge settled in cat should have: no review, the run label.
+func (p Policy) Settle(cat ledger.CategoryID, current ledger.State) ledger.State {
 	labels := slices.Clone(current.Labels)
 	if !current.HasLabel(p.Label) {
 		labels = append(labels, p.Label)
 	}
-	return ledger.State{Category: p.CategoryFor(pay), NeedsReview: false, Labels: labels}
+	return ledger.State{Category: cat, NeedsReview: false, Labels: labels}
 }
 
 // Change moves one charge from one state to another.

@@ -16,3 +16,8 @@ label = "grab-auto"
 [categories]
 ride = 0
 delivery = 0
+
+# THB tip amounts; an unclaimed charge at one of them is a tip of that kind.
+[tips]
+ride = [60]
+delivery = [20, 50]
