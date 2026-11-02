@@ -12,15 +12,17 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
-// PayeeKey is the first two runs of letters in a payee, upper-cased: "GOOGLE *FI AbCDE1" is
-// "GOOGLE FI". A payee with no letters has an empty key.
-func PayeeKey(payee string) string {
-	words := strings.FieldsFunc(strings.ToUpper(payee), func(r rune) bool { return r < 'A' || r > 'Z' })
-	if len(words) > 2 {
-		words = words[:2]
-	}
-	return strings.Join(words, " ")
+// PayeeKey is the first two words of a payee: "GOOGLE *FI AbCDE1" is "GOOGLE FI". A payee
+// with no letters has an empty key.
+func PayeeKey(payee string) string { return key(words(payee), 2) }
+
+// words are the runs of letters in payee, upper-cased.
+func words(payee string) []string {
+	return strings.FieldsFunc(strings.ToUpper(payee), func(r rune) bool { return r < 'A' || r > 'Z' })
 }
+
+// key is the first n of ws.
+func key(ws []string, n int) string { return strings.Join(ws[:min(n, len(ws))], " ") }
 
 // Pattern is a case-insensitive payee pattern for key's words, in order, each a whole word.
 func Pattern(key string) string {
@@ -43,44 +45,56 @@ type Proposal struct {
 func (p Proposal) ID() string { return fmt.Sprintf("propose %s %d", p.Key, p.Category) }
 
 // Propose returns a proposal for each payee key whose user categorizations in txs are
-// unanimous and at least min in number, unless covered reports that a layer already decides
-// one of them. Proposals are sorted by key.
-func Propose(txs []ledger.Transaction, min int, covered func(ledger.Transaction) bool) []Proposal {
-	type tally struct {
-		cats    map[ledger.CategoryID]int
-		covered bool
-	}
-	by := map[string]*tally{}
+// unanimous and number least or more, unless covered reports that a layer already decides
+// one of them. A key is a payee's first two words, lengthened a word at a time while the
+// categorizations behind it disagree. Proposals are sorted by key.
+func Propose(txs []ledger.Transaction, least int, covered func(ledger.Transaction) bool) []Proposal {
+	var decided []judged
 	for _, t := range txs {
 		if !t.UserDecided() {
 			continue
 		}
-		k := PayeeKey(t.Payee)
-		if k == "" {
-			continue
+		if ws := words(t.Payee); len(ws) > 0 {
+			decided = append(decided, judged{t, ws})
 		}
-		tl := by[k]
-		if tl == nil {
-			tl = &tally{cats: map[ledger.CategoryID]int{}}
-			by[k] = tl
-		}
-		tl.cats[t.State.Category]++
-		if covered(t) {
-			tl.covered = true
-		}
+	}
+	out := propose(decided, 2, least, covered)
+	slices.SortFunc(out, func(a, b Proposal) int { return strings.Compare(a.Key, b.Key) })
+	return out
+}
+
+// judged is a user categorization with its payee's words.
+type judged struct {
+	t     ledger.Transaction
+	words []string
+}
+
+// propose groups txs by their first n words, proposes each group that agrees and splits each
+// group that disagrees by its next word.
+func propose(txs []judged, n, least int, covered func(ledger.Transaction) bool) []Proposal {
+	groups := map[string][]judged{}
+	for _, j := range txs {
+		k := key(j.words, n)
+		groups[k] = append(groups[k], j)
 	}
 	var out []Proposal
-	for k, tl := range by {
-		if tl.covered || len(tl.cats) != 1 {
+	for k, g := range groups {
+		cat := g[0].t.State.Category
+		if slices.ContainsFunc(g, func(j judged) bool { return j.t.State.Category != cat }) {
+			var longer []judged
+			for _, j := range g {
+				if len(j.words) > n {
+					longer = append(longer, j)
+				}
+			}
+			out = append(out, propose(longer, n+1, least, covered)...)
 			continue
 		}
-		for cat, n := range tl.cats {
-			if n >= min {
-				out = append(out, Proposal{Key: k, Category: cat, Count: n, Pattern: Pattern(k)})
-			}
+		if len(g) < least || slices.ContainsFunc(g, func(j judged) bool { return covered(j.t) }) {
+			continue
 		}
+		out = append(out, Proposal{Key: k, Category: cat, Count: len(g), Pattern: Pattern(k)})
 	}
-	slices.SortFunc(out, func(a, b Proposal) int { return strings.Compare(a.Key, b.Key) })
 	return out
 }
 
@@ -106,14 +120,14 @@ func Backtest(txs []ledger.Transaction, cutoff time.Time, maxMin int) []Trial {
 		}
 	}
 	trials := make([]Trial, 0, maxMin)
-	for min := 1; min <= maxMin; min++ {
+	for least := 1; least <= maxMin; least++ {
 		proposed := map[string]ledger.CategoryID{}
-		for _, p := range Propose(before, min, func(ledger.Transaction) bool { return false }) {
+		for _, p := range Propose(before, least, func(ledger.Transaction) bool { return false }) {
 			proposed[p.Key] = p.Category
 		}
-		tr := Trial{Min: min}
+		tr := Trial{Min: least}
 		for _, t := range after {
-			if cat, ok := proposed[PayeeKey(t.Payee)]; ok {
+			if cat, ok := proposedFor(proposed, words(t.Payee)); ok {
 				tr.Evaluated++
 				if cat == t.State.Category {
 					tr.Correct++
@@ -123,6 +137,17 @@ func Backtest(txs []ledger.Transaction, cutoff time.Time, maxMin int) []Trial {
 		trials = append(trials, tr)
 	}
 	return trials
+}
+
+// proposedFor is the category proposed for a payee's words. No proposed key is a prefix of
+// another, so at most one prefix of ws is proposed.
+func proposedFor(proposed map[string]ledger.CategoryID, ws []string) (ledger.CategoryID, bool) {
+	for n := 2; n <= max(2, len(ws)); n++ {
+		if cat, ok := proposed[key(ws, n)]; ok {
+			return cat, true
+		}
+	}
+	return 0, false
 }
 
 // Threshold returns the smallest minimum count whose trial reached target precision over at

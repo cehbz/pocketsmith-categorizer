@@ -2,6 +2,7 @@ package learn
 
 import (
 	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -102,5 +103,45 @@ func TestBacktestFindsTheThreshold(t *testing.T) {
 	}
 	if _, ok := Threshold(trials, 0.95, 5); ok {
 		t.Error("Threshold found a minimum with too few evaluated")
+	}
+}
+
+func TestProposeLengthensKeysUntilHistoryAgrees(t *testing.T) {
+	txs := []ledger.Transaction{
+		user("ZELLE TO BOB SAMPLE", "2026-01-01", 5), user("ZELLE TO BOB SAMPLE", "2026-02-01", 5),
+		user("ZELLE TO ALICE EXAMPLE", "2026-01-01", 6), user("ZELLE TO ALICE EXAMPLE", "2026-02-01", 6),
+		user("ZELLE TO", "2026-01-01", 7), user("ZELLE TO", "2026-02-01", 7),
+		user("ZELLE TO ONCE ONLY", "2026-01-01", 8),
+	}
+	got := Propose(txs, 2, never)
+	want := []Proposal{
+		{Key: "ZELLE TO ALICE", Category: 6, Count: 2, Pattern: Pattern("ZELLE TO ALICE")},
+		{Key: "ZELLE TO BOB", Category: 5, Count: 2, Pattern: Pattern("ZELLE TO BOB")},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Propose = %+v, want %+v", got, want)
+	}
+}
+
+func TestProposeSkipsCoveredLengthenedKeys(t *testing.T) {
+	txs := []ledger.Transaction{
+		user("ZELLE TO BOB", "2026-01-01", 5), user("ZELLE TO BOB", "2026-02-01", 5),
+		user("ZELLE TO ALICE", "2026-01-01", 6), user("ZELLE TO ALICE", "2026-02-01", 6),
+	}
+	got := Propose(txs, 2, func(t ledger.Transaction) bool { return t.Payee == "ZELLE TO BOB" })
+	if len(got) != 1 || got[0].Key != "ZELLE TO ALICE" {
+		t.Errorf("Propose = %+v", got)
+	}
+}
+
+func TestBacktestScoresLengthenedKeys(t *testing.T) {
+	txs := []ledger.Transaction{
+		user("ZELLE TO BOB", "2025-01-01", 5), user("ZELLE TO BOB", "2025-02-01", 5),
+		user("ZELLE TO ALICE", "2025-01-01", 6), user("ZELLE TO ALICE", "2025-02-01", 6),
+		user("ZELLE TO BOB", "2026-03-01", 5), user("ZELLE TO ALICE", "2026-03-01", 9),
+		user("ZELLE TO NEWCOMER", "2026-03-01", 7),
+	}
+	if got, want := Backtest(txs, date("2026-01-01"), 2)[1], (Trial{Min: 2, Evaluated: 2, Correct: 1}); got != want {
+		t.Errorf("Backtest min 2 = %+v, want %+v", got, want)
 	}
 }
