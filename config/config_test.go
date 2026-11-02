@@ -149,11 +149,12 @@ account = "Checking"
 category = "Monthly Income"
 bill = "Card Payment"
 rent = "Rent"
+cash = "Cash"
 target = 3000
 tolerance = 1500
 `
 
-var cats = []ledger.Category{{ID: 1, Title: "Monthly Income"}, {ID: 2, Title: "Card Payment"}, {ID: 3, Title: "Rent"}}
+var cats = []ledger.Category{{ID: 1, Title: "Monthly Income"}, {ID: 2, Title: "Card Payment"}, {ID: 3, Title: "Rent"}, {ID: 4, Title: "Cash"}}
 
 func TestSettingsResolvesTitles(t *testing.T) {
 	c, err := Load(write(t, "config.toml", full+attentionConfig, 0o600))
@@ -168,7 +169,7 @@ func TestSettingsResolvesTitles(t *testing.T) {
 		t.Errorf("settings = %+v", s)
 	}
 	in := s.Income
-	if in.Account != "Checking" || in.Category != 1 || in.Bill != 2 || in.Rent != 3 || in.Target != 3000 || in.Tolerance != 1500 {
+	if in.Account != "Checking" || in.Category != 1 || in.Bill != 2 || in.Rent != 3 || in.Cash != 4 || in.Target != 3000 || in.Tolerance != 1500 {
 		t.Errorf("income = %+v", in)
 	}
 }
@@ -182,7 +183,7 @@ func TestSettingsNamesWhatIsMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("Settings accepted a config without them")
 	}
-	for _, f := range []string{"attention.start", "attention.large", "attention.sd", "income.account", "income.category", "income.bill", "income.rent", "income.target", "income.tolerance"} {
+	for _, f := range []string{"attention.start", "attention.large", "attention.sd", "income.account", "income.category", "income.bill", "income.rent", "income.cash", "income.target", "income.tolerance"} {
 		if !strings.Contains(err.Error(), f) {
 			t.Errorf("error %q doesn't name %s", err, f)
 		}

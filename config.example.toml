@@ -34,5 +34,6 @@ account = "Checking"       # the account Monthly Income arrives in
 category = "Monthly Income"
 bill = "Card Payment"      # the card bill paid from the account
 rent = "Rent"
+cash = "Cash"              # cash withdrawn from the account
 target = 3000              # the balance the account is topped up to
 tolerance = 1500           # how far a month may land from the estimate

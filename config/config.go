@@ -141,6 +141,7 @@ type Income struct {
 	Category  string  `toml:"category"`
 	Bill      string  `toml:"bill"`
 	Rent      string  `toml:"rent"`
+	Cash      string  `toml:"cash"`
 	Target    float64 `toml:"target"`
 	Tolerance float64 `toml:"tolerance"`
 }
@@ -161,6 +162,7 @@ func (c Config) Settings(cats []ledger.Category) (attention.Settings, error) {
 	need(in.Category != "", "income.category")
 	need(in.Bill != "", "income.bill")
 	need(in.Rent != "", "income.rent")
+	need(in.Cash != "", "income.cash")
 	need(in.Target > 0, "income.target")
 	need(in.Tolerance > 0, "income.tolerance")
 	if len(missing) > 0 {
@@ -174,8 +176,8 @@ func (c Config) Settings(cats []ledger.Category) (attention.Settings, error) {
 	for _, cat := range cats {
 		ids[cat.Title] = cat.ID
 	}
-	var resolved [3]ledger.CategoryID
-	for i, title := range []string{in.Category, in.Bill, in.Rent} {
+	var resolved [4]ledger.CategoryID
+	for i, title := range []string{in.Category, in.Bill, in.Rent, in.Cash} {
 		id, ok := ids[title]
 		if !ok {
 			return attention.Settings{}, fmt.Errorf("config: income: no category %q", title)
@@ -186,7 +188,7 @@ func (c Config) Settings(cats []ledger.Category) (attention.Settings, error) {
 		Start: start,
 		Size:  attention.Size{Absolute: a.Large, SD: a.SD},
 		Income: attention.Income{Account: in.Account, Category: resolved[0], Bill: resolved[1], Rent: resolved[2],
-			Target: in.Target, Tolerance: in.Tolerance},
+			Cash: resolved[3], Target: in.Target, Tolerance: in.Tolerance},
 	}, nil
 }
 

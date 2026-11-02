@@ -7,7 +7,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
-var in = Income{Account: "Checking", Category: 1, Bill: 2, Rent: 3, Target: 3000, Tolerance: 1500}
+var in = Income{Account: "Checking", Category: 1, Bill: 2, Rent: 3, Cash: 4, Target: 3000, Tolerance: 1500}
 
 func btx(id int64, d string, amount, closing float64, cat ledger.CategoryID) ledger.Transaction {
 	return ledger.Transaction{ID: id, Date: date(d), Amount: amount, ClosingBalance: closing, Payee: "P", Account: ledger.Account{Name: "Checking"}, State: ledger.State{Category: cat}}
@@ -142,5 +142,21 @@ func TestCheckWaitsForAKnownBalance(t *testing.T) {
 	m, ok := in.Check(txs, current, date("2026-03-01"))
 	if !ok || m.Ready || m.Mismatch(1500) {
 		t.Errorf("month = %+v, want unready without a closing balance", m)
+	}
+}
+
+func TestCheckCountsCashAfterTheFirstCredit(t *testing.T) {
+	txs := []ledger.Transaction{
+		btx(1, "2026-02-27", -10, 2000, 0),
+		btx(20, "2026-03-02", -500, 1500, 4),
+		btx(2, "2026-03-03", 1500, 3000, 1),
+		btx(21, "2026-03-05", -700, 2300, 4),
+		btx(3, "2026-03-09", 6700, 9000, 1),
+		btx(4, "2026-03-10", -1700, 7300, 3),
+		btx(5, "2026-03-12", -4300, 3000, 2),
+	}
+	m, _ := in.Check(txs, current, date("2026-03-01"))
+	if !near(m.Expected, 8200) || !near(m.Actual, 8200) {
+		t.Errorf("month = %+v, want 8200 expected: the cash before the first credit is in the balance", m)
 	}
 }

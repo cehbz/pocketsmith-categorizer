@@ -15,8 +15,9 @@ type Income struct {
 	Category  ledger.CategoryID // Monthly Income
 	Bill      ledger.CategoryID // the card bill paid from the account
 	Rent      ledger.CategoryID
-	Target    float64 // the balance the account is topped up to
-	Tolerance float64 // how far a month may land from the estimate
+	Cash      ledger.CategoryID // cash withdrawn from the account
+	Target    float64           // the balance the account is topped up to
+	Tolerance float64           // how far a month may land from the estimate
 }
 
 // Month is an income month's check.
@@ -36,7 +37,7 @@ func (m Month) Mismatch(tolerance float64) bool {
 
 // Check checks the income month starting at start: the account's balance before the
 // month's first Monthly Income credit, plus the month's Monthly Income credits, less the card
-// bill and rent posted after that credit, should land at the target. category gives each
+// bill, rent and cash posted after that credit, should land at the target. category gives each
 // transaction's category as the run leaves it. ok is false for a month without Monthly Income.
 func (in Income) Check(txs []ledger.Transaction, category func(ledger.Transaction) ledger.CategoryID, start time.Time) (m Month, ok bool) {
 	var month []ledger.Transaction
@@ -66,7 +67,7 @@ func (in Income) Check(txs []ledger.Transaction, category func(ledger.Transactio
 		case in.Bill:
 			m.Expected -= t.Amount
 			m.Ready = m.Ready || t.Amount < 0
-		case in.Rent:
+		case in.Rent, in.Cash:
 			m.Expected -= t.Amount
 		}
 	}
