@@ -7,6 +7,7 @@ import (
 
 	api "github.com/cehbz/pocketsmith"
 
+	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -16,10 +17,11 @@ import (
 
 // session is what every command needs: the ledger, its categories and rules, and today.
 type session struct {
-	ledger *pocketsmith.Ledger
-	titles map[ledger.CategoryID]string
-	rules  rules.Rules
-	today  time.Time // in the ledger's time zone, midnight UTC
+	ledger    *pocketsmith.Ledger
+	titles    map[ledger.CategoryID]string
+	rules     rules.Rules
+	today     time.Time          // in the ledger's time zone, midnight UTC
+	attention attention.Settings // when transactions need the user
 }
 
 // open loads config, reads the key, and loads the rules file before any transaction is read.
@@ -41,6 +43,10 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
+	set, err := cfg.Settings(cats)
+	if err != nil {
+		return nil, err
+	}
 	loc, err := l.TimeZone(ctx)
 	if err != nil {
 		return nil, err
@@ -49,5 +55,5 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	for _, c := range cats {
 		titles[c.ID] = c.Title
 	}
-	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc)}, nil
+	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc), attention: set}, nil
 }

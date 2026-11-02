@@ -51,6 +51,10 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	judged, err := memo.Load(config.JudgedPath(home))
+	if err != nil {
+		return err
+	}
 	store := journal.Store{Dir: journalDir}
 	last, err := store.LastSet()
 	if err != nil {
@@ -72,6 +76,8 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 
 	plan := decide.Make(txs, []decide.Layer{s.rules}, last, s.today.AddDate(0, 0, -*lookback))
+	j := attend(txs, plan, s.attention, judged, s.today)
+	plan.Flag(byID, j.reasons)
 
 	var suggestions []decide.Suggestion
 	for _, sg := range plan.Suggestions {
@@ -91,7 +97,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 
-	changes := append(append([]categorize.Change{}, plan.Changes...), plan.Corrections...)
+	changes := append(append(append([]categorize.Change{}, plan.Changes...), plan.Flags...), plan.Corrections...)
 	runID := "(none)"
 	applied, applyErr := 0, error(nil)
 	if len(changes) > 0 {
@@ -106,7 +112,9 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	decisions := min(applied, len(plan.Changes))
-	corrections := plan.Corrections[:applied-decisions]
+	flags := min(applied-decisions, len(plan.Flags))
+	corrections := plan.Corrections[:applied-decisions-flags]
+	unwritten := changes[applied:]
 	var amendments []categorize.Change
 	for _, c := range corrections {
 		prev, ok := last[c.Charge]
@@ -121,6 +129,8 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		Undecided: plan.Undecided, Suggestions: suggestions,
 		Proposals: proposals, Threshold: threshold, ThresholdFound: found, Trials: trials,
 		Titles: s.titles, Transactions: byID,
+		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
+		Income: j.months, Tolerance: s.attention.Income.Tolerance,
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)
@@ -136,7 +146,8 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	for _, p := range proposals {
 		shown.Add(p.ID())
 	}
-	return errors.Join(applyErr, shown.Save())
+	remember(judged, j, unwritten)
+	return errors.Join(applyErr, shown.Save(), judged.Save())
 }
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }

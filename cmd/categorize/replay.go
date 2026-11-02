@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/config"
+	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
 
@@ -32,9 +34,15 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	from := s.today.AddDate(0, 0, -*days)
-	txs, err := s.ledger.Transactions(ctx, from, s.today, false)
+	all, err := s.ledger.Transactions(ctx, from.AddDate(0, 0, -365), s.today, false)
 	if err != nil {
 		return err
+	}
+	var txs []ledger.Transaction
+	for _, t := range all {
+		if !t.Date.Before(from) {
+			txs = append(txs, t)
+		}
 	}
 	users := 0
 	for _, t := range txs {
@@ -42,5 +50,11 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 			users++
 		}
 	}
-	return report.WriteReplay(out, report.Replay{From: from, To: s.today, Users: users, Stats: s.rules.Replay(txs), Titles: s.titles})
+	decideRule := func(t ledger.Transaction) (ledger.CategoryID, bool) {
+		d, ok := s.rules.Decide(t)
+		return d.Category, ok
+	}
+	tally := attention.Replay(all, from, s.today, s.attention, decideRule)
+	return report.WriteReplay(out, report.Replay{From: from, To: s.today, Users: users, Stats: s.rules.Replay(txs), Titles: s.titles,
+		Attention: &tally, Tolerance: s.attention.Income.Tolerance})
 }
