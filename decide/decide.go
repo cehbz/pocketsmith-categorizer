@@ -3,6 +3,8 @@ package decide
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
@@ -37,6 +39,7 @@ type Plan struct {
 	Changes     []categorize.Change  // decisions for transactions in scope
 	Corrections []categorize.Change  // categorizer labels removed where the user recategorized
 	Undecided   []ledger.Transaction // needing review, no layer decided
+	Flags       []categorize.Change  // transactions put in review without a decision change
 	Suggestions []Suggestion         // the user's transactions a layer disagrees with
 }
 
@@ -56,7 +59,7 @@ func Make(txs []ledger.Transaction, layers []Layer, set map[int64]categorize.Cha
 		inScope := t.State.NeedsReview || owned && !t.Date.Before(since)
 		switch {
 		case inScope && decided:
-			after := ledger.State{Category: d.Category, Labels: append(t.State.UserLabels(), d.Label)}
+			after := ledger.State{Category: d.Category, NeedsReview: t.State.NeedsReview && t.State.Flagged(), Labels: append(t.State.UserLabels(), d.Label)}
 			if !t.State.Equal(after) {
 				p.Changes = append(p.Changes, categorize.Change{Charge: t.ID, Before: t.State, After: after, Source: d.Source})
 			}
@@ -91,4 +94,40 @@ func Merge(lists ...[]ledger.Transaction) []ledger.Transaction {
 		}
 	}
 	return out
+}
+
+// Flag puts the transactions with reasons in review, each gaining its reasons' labels. A
+// planned decision keeps its change, which carries the flag; any other transaction gets a
+// change of its own in Flags, in ID order. Corrections are left as they are.
+func (p *Plan) Flag(txs map[int64]ledger.Transaction, reasons map[int64][]string) {
+	planned := map[int64]bool{}
+	for i, c := range p.Changes {
+		planned[c.Charge] = true
+		if rs := reasons[c.Charge]; len(rs) > 0 {
+			p.Changes[i].After = flagged(c.After, rs)
+		}
+	}
+	for _, c := range p.Corrections {
+		planned[c.Charge] = true
+	}
+	for _, id := range slices.Sorted(maps.Keys(reasons)) {
+		t, ok := txs[id]
+		if planned[id] || !ok || len(reasons[id]) == 0 {
+			continue
+		}
+		if after := flagged(t.State, reasons[id]); !after.Equal(t.State) {
+			p.Flags = append(p.Flags, categorize.Change{Charge: id, Before: t.State, After: after})
+		}
+	}
+}
+
+// flagged is s in review with the reasons' labels added.
+func flagged(s ledger.State, reasons []string) ledger.State {
+	labels := slices.Clone(s.Labels)
+	for _, r := range reasons {
+		if !slices.Contains(labels, r) {
+			labels = append(labels, r)
+		}
+	}
+	return ledger.State{Category: s.Category, NeedsReview: true, Labels: labels}
 }

@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -171,5 +172,76 @@ func TestCorrectionIsExemptFromTheLookback(t *testing.T) {
 	p := Make([]ledger.Transaction{tx(1, "2020-02-01", ledger.State{Category: 5, Labels: []string{"auto-rule"}})}, []Layer{to9}, map[int64]categorize.Change{1: rec(9)}, since)
 	if len(p.Corrections) != 1 {
 		t.Errorf("plan = %+v", p)
+	}
+}
+
+func TestFlaggedDecisionStaysInReview(t *testing.T) {
+	s := ledger.State{Category: 3, NeedsReview: true, Labels: []string{"attention-large"}}
+	p := Make([]ledger.Transaction{tx(1, "2026-02-01", s)}, []Layer{to9}, nil, since)
+	if len(p.Changes) != 1 || !p.Changes[0].After.NeedsReview || !p.Changes[0].After.HasLabel("attention-large") || !p.Changes[0].After.HasLabel("auto-rule") {
+		t.Errorf("changes = %+v", p.Changes)
+	}
+}
+
+func TestClearedFlaggedDecisionStaysCleared(t *testing.T) {
+	s := ledger.State{Category: 9, Labels: []string{"auto-rule", "attention-large"}}
+	p := Make([]ledger.Transaction{tx(1, "2026-02-01", s)}, []Layer{to9}, nil, since)
+	if len(p.Changes) != 0 {
+		t.Errorf("changes = %+v, want none", p.Changes)
+	}
+}
+
+func TestFlagJoinsAPlannedDecision(t *testing.T) {
+	t1 := tx(1, "2026-02-01", ledger.State{Category: 3, NeedsReview: true})
+	p := Make([]ledger.Transaction{t1}, []Layer{to9}, nil, since)
+	p.Flag(map[int64]ledger.Transaction{1: t1}, map[int64][]string{1: {"attention-new-payee"}})
+	a := p.Changes[0].After
+	if a.Category != 9 || !a.NeedsReview || !a.HasLabel("auto-rule") || !a.HasLabel("attention-new-payee") || len(p.Flags) != 0 {
+		t.Errorf("after = %+v, flags = %+v", a, p.Flags)
+	}
+}
+
+func TestFlagAddsAChangeWithoutADecision(t *testing.T) {
+	t1 := tx(1, "2026-02-01", ledger.State{Category: 4, Labels: []string{"x"}})
+	var p Plan
+	p.Flag(map[int64]ledger.Transaction{1: t1}, map[int64][]string{1: {"attention-large", "attention-duplicate"}})
+	if len(p.Flags) != 1 {
+		t.Fatalf("flags = %+v", p.Flags)
+	}
+	f := p.Flags[0]
+	if f.Charge != 1 || !f.Before.Equal(t1.State) || f.After.Category != 4 || !f.After.NeedsReview || !slices.Equal(f.After.Labels, []string{"x", "attention-large", "attention-duplicate"}) {
+		t.Errorf("flag = %+v", f)
+	}
+}
+
+func TestFlagSkipsAnAlreadyFlaggedState(t *testing.T) {
+	t1 := tx(1, "2026-02-01", ledger.State{Category: 4, NeedsReview: true, Labels: []string{"attention-large"}})
+	var p Plan
+	p.Flag(map[int64]ledger.Transaction{1: t1}, map[int64][]string{1: {"attention-large"}})
+	if len(p.Flags) != 0 {
+		t.Errorf("flags = %+v, want none", p.Flags)
+	}
+}
+
+func TestFlagLeavesCorrectionsAlone(t *testing.T) {
+	t1 := tx(1, "2026-02-01", ledger.State{Category: 4})
+	p := Plan{Corrections: []categorize.Change{{Charge: 1}}}
+	p.Flag(map[int64]ledger.Transaction{1: t1}, map[int64][]string{1: {"attention-large"}})
+	if len(p.Flags) != 0 {
+		t.Errorf("flags = %+v, want none", p.Flags)
+	}
+}
+
+func TestFlagsAreInIDOrder(t *testing.T) {
+	txs := map[int64]ledger.Transaction{}
+	reasons := map[int64][]string{}
+	for _, id := range []int64{5, 2, 9} {
+		txs[id] = tx(id, "2026-02-01", ledger.State{})
+		reasons[id] = []string{"attention-large"}
+	}
+	var p Plan
+	p.Flag(txs, reasons)
+	if len(p.Flags) != 3 || p.Flags[0].Charge != 2 || p.Flags[1].Charge != 5 || p.Flags[2].Charge != 9 {
+		t.Errorf("flags = %+v", p.Flags)
 	}
 }
