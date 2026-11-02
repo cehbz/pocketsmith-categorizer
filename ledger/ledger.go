@@ -48,12 +48,13 @@ type Account struct {
 
 // Transaction is one transaction on any account.
 type Transaction struct {
-	ID      int64
-	Date    time.Time // ledger date, midnight UTC
-	Amount  float64   // a debit is negative
-	Payee   string
-	Account Account
-	State   State
+	ID             int64
+	Date           time.Time // ledger date, midnight UTC
+	Amount         float64   // a debit is negative
+	Payee          string
+	Account        Account
+	ClosingBalance float64 // the account's balance after this transaction
+	State          State
 }
 
 // Category is a PocketSmith category.
@@ -85,3 +86,9 @@ func (s State) UserLabels() []string {
 func (t Transaction) UserDecided() bool {
 	return !t.State.NeedsReview && !t.State.Owned() && t.State.Category != 0
 }
+
+// IsAttentionLabel reports whether label names a reason a transaction needs the user.
+func IsAttentionLabel(label string) bool { return strings.HasPrefix(label, "attention-") }
+
+// Flagged reports whether the state carries a reason the transaction needs the user.
+func (s State) Flagged() bool { return slices.ContainsFunc(s.Labels, IsAttentionLabel) }

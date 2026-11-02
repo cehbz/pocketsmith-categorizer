@@ -131,7 +131,7 @@ func (f *fakeAPI) Categories(ctx context.Context, user int64) ([]api.Category, e
 
 func TestTransactionsQueriesTheUser(t *testing.T) {
 	f := &fakeAPI{txs: []api.Transaction{
-		{ID: 1, Date: mustDay(t, "2026-01-12"), Amount: -2.50, Payee: "CAFE", Category: &api.Category{ID: 9}, NeedsReview: true, Labels: []string{"x"}, Account: api.Account{ID: 7, Name: "Card"}},
+		{ID: 1, Date: mustDay(t, "2026-01-12"), Amount: -2.50, Payee: "CAFE", Category: &api.Category{ID: 9}, NeedsReview: true, Labels: []string{"x"}, Account: api.Account{ID: 7, Name: "Card"}, ClosingBalance: 97.5},
 	}}
 	first, last := mustDay(t, "2026-01-01"), mustDay(t, "2026-01-31")
 	got, err := (&Ledger{API: f}).Transactions(context.Background(), first, last, true)
@@ -141,7 +141,7 @@ func TestTransactionsQueriesTheUser(t *testing.T) {
 	if f.query.User != 1 || f.query.Account != 0 || !f.query.From.Equal(first) || !f.query.To.Equal(last) || !f.query.NeedsReview {
 		t.Errorf("query = %+v", f.query)
 	}
-	want := ledger.Transaction{ID: 1, Date: mustDay(t, "2026-01-12"), Amount: -2.50, Payee: "CAFE", Account: ledger.Account{ID: 7, Name: "Card"},
+	want := ledger.Transaction{ID: 1, Date: mustDay(t, "2026-01-12"), Amount: -2.50, Payee: "CAFE", Account: ledger.Account{ID: 7, Name: "Card"}, ClosingBalance: 97.5,
 		State: ledger.State{Category: 9, NeedsReview: true, Labels: []string{"x"}}}
 	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("Transactions = %+v, want %+v", got, want)

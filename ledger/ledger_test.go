@@ -73,3 +73,27 @@ func TestUserDecided(t *testing.T) {
 		}
 	}
 }
+
+func TestAttentionLabels(t *testing.T) {
+	for label, want := range map[string]bool{"attention-large": true, "attention-new-payee": true, "auto-rule": false, "attention": false, "x": false} {
+		if got := IsAttentionLabel(label); got != want {
+			t.Errorf("IsAttentionLabel(%q) = %v, want %v", label, got, want)
+		}
+	}
+}
+
+func TestFlagged(t *testing.T) {
+	if !(State{Labels: []string{"x", "attention-large"}}).Flagged() || (State{Labels: []string{"x", "auto-rule"}}).Flagged() {
+		t.Error("Flagged wrong")
+	}
+}
+
+func TestAttentionLabelsAreTheUsers(t *testing.T) {
+	s := State{Labels: []string{"auto-rule", "attention-large"}}
+	if !slices.Equal(s.UserLabels(), []string{"attention-large"}) || !s.Owned() {
+		t.Errorf("UserLabels = %v, Owned = %v", s.UserLabels(), s.Owned())
+	}
+	if (State{Labels: []string{"attention-large"}}).Owned() {
+		t.Error("an attention label made a state categorizer-owned")
+	}
+}

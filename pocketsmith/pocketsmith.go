@@ -79,12 +79,13 @@ func (l *Ledger) TimeZone(ctx context.Context) (*time.Location, error) {
 
 func transaction(t api.Transaction) ledger.Transaction {
 	return ledger.Transaction{
-		ID:      t.ID,
-		Date:    t.Date,
-		Amount:  t.Amount,
-		Payee:   t.Payee,
-		Account: ledger.Account{ID: t.Account.ID, Name: t.Account.Name},
-		State:   charge(t).State,
+		ID:             t.ID,
+		Date:           t.Date,
+		Amount:         t.Amount,
+		Payee:          t.Payee,
+		Account:        ledger.Account{ID: t.Account.ID, Name: t.Account.Name},
+		ClosingBalance: t.ClosingBalance,
+		State:          charge(t).State,
 	}
 }
 
