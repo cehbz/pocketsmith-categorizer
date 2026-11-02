@@ -25,7 +25,7 @@ type Month struct {
 	Credits  []ledger.Transaction // the month's Monthly Income credits
 	Expected float64              // the Monthly Income the month needed
 	Actual   float64              // the Monthly Income it got
-	Ready    bool                 // the card bill has posted after the first credit
+	Ready    bool                 // the card bill has posted after the first credit, whose closing balance is known
 }
 
 // Mismatch reports whether the month's Monthly Income missed the estimate by more than
@@ -70,6 +70,8 @@ func (in Income) Check(txs []ledger.Transaction, category func(ledger.Transactio
 			m.Expected -= t.Amount
 		}
 	}
+	// A zero closing balance is PocketSmith's missing one; the estimate can't be trusted.
+	m.Ready = m.Ready && month[first].ClosingBalance != 0
 	return m, true
 }
 

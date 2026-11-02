@@ -49,3 +49,17 @@ func TestACorruptFileIsAnError(t *testing.T) {
 		t.Error("Load accepted a corrupt file")
 	}
 }
+
+func TestAForgottenKeyIsNotSeen(t *testing.T) {
+	m, err := Load(filepath.Join(t.TempDir(), "shown.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Add("a")
+	m.Add("b")
+	m.Forget("a")
+	m.Forget("c")
+	if m.Seen("a") || !m.Seen("b") {
+		t.Errorf("after Forget(a): a seen %v, b seen %v", m.Seen("a"), m.Seen("b"))
+	}
+}

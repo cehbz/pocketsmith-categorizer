@@ -74,3 +74,6 @@ func (m *Memo) Save() error {
 	}
 	return os.Rename(tmp.Name(), m.path)
 }
+
+// Forget drops key, so it is no longer seen.
+func (m *Memo) Forget(key string) { delete(m.seen, key) }

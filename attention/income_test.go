@@ -135,3 +135,12 @@ func TestInOrderKeepsIDOrderWhenBalancesDontChain(t *testing.T) {
 		t.Errorf("order = %d %d, want 1 2", got[0].ID, got[1].ID)
 	}
 }
+
+func TestCheckWaitsForAKnownBalance(t *testing.T) {
+	txs := march(6000)
+	txs[1].ClosingBalance = 0
+	m, ok := in.Check(txs, current, date("2026-03-01"))
+	if !ok || m.Ready || m.Mismatch(1500) {
+		t.Errorf("month = %+v, want unready without a closing balance", m)
+	}
+}

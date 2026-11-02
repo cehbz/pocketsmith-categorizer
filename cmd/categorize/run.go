@@ -78,6 +78,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	plan := decide.Make(txs, []decide.Layer{s.rules}, last, s.today.AddDate(0, 0, -*lookback))
 	j := attend(txs, plan, s.attention, judged, s.today)
 	plan.Flag(byID, j.reasons)
+	inheritSources(plan.Flags, last)
 
 	var suggestions []decide.Suggestion
 	for _, sg := range plan.Suggestions {
@@ -151,3 +152,13 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 }
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }
+
+// inheritSources gives each flag on a categorizer-owned transaction the Source of the
+// change that last set it, so the journal keeps naming the rule behind the category.
+func inheritSources(flags []categorize.Change, last map[int64]categorize.Change) {
+	for i, f := range flags {
+		if prev, ok := last[f.Charge]; ok && f.Before.Owned() {
+			flags[i].Source = prev.Source
+		}
+	}
+}

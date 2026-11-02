@@ -14,6 +14,8 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/journal"
+	"github.com/cehbz/pocketsmith-categorizer/ledger"
+	"github.com/cehbz/pocketsmith-categorizer/memo"
 	"github.com/cehbz/pocketsmith-categorizer/pocketsmith"
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
@@ -48,8 +50,13 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	seen, err := memo.Load(config.JudgedPath(home))
+	if err != nil {
+		return err
+	}
 	ps := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: &http.Client{Timeout: 30 * time.Second}}}
-	changes, skipped, unchanged, err := categorize.Undo(ctx, ps, entries)
+	read := &reading{Ledger: ps, charges: map[int64]ledger.Charge{}}
+	changes, skipped, unchanged, err := categorize.Undo(ctx, read, entries)
 	if err != nil {
 		return err
 	}
@@ -69,6 +76,34 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 			applyErr = err
 		}
 	}
+	var reverted []ledger.Charge
+	for _, c := range changes[:applied] {
+		reverted = append(reverted, read.charges[c.Charge])
+	}
+	forget(seen, reverted)
 	err = report.WriteUndo(out, report.UndoRun{RunID: runID, Target: target, Changes: changes, Applied: applied, Skipped: skipped, Unchanged: unchanged})
-	return errors.Join(applyErr, err)
+	return errors.Join(applyErr, err, seen.Save())
+}
+
+// reading is a ledger that keeps the charges read through it.
+type reading struct {
+	categorize.Ledger
+	charges map[int64]ledger.Charge
+}
+
+func (r *reading) Charge(ctx context.Context, id int64) (ledger.Charge, error) {
+	c, err := r.Ledger.Charge(ctx, id)
+	if err == nil {
+		r.charges[id] = c
+	}
+	return c, err
+}
+
+// forget drops the judgements of the reverted charges and the checks of their income
+// months, so the next run judges them again.
+func forget(seen *memo.Memo, reverted []ledger.Charge) {
+	for _, c := range reverted {
+		seen.Forget(judgedKey(c.ID))
+		seen.Forget(incomeKey(c.Date))
+	}
 }
