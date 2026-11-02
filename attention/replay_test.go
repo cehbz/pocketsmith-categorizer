@@ -24,7 +24,7 @@ func TestReplayJudgesEveryTransactionAsNew(t *testing.T) {
 	}
 }
 
-func TestReplayChecksIncomeMonths(t *testing.T) {
+func TestReplayChecksIncomeCycles(t *testing.T) {
 	s := Settings{Size: size, Income: in}
 	current := func(t ledger.Transaction) (ledger.CategoryID, bool) { return t.State.Category, false }
 	got := Replay(march(6000), date("2026-03-01"), date("2026-03-31"), s, current)

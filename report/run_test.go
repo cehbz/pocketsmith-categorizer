@@ -96,9 +96,9 @@ func TestWriteRunListsAttention(t *testing.T) {
 		Flags:        []categorize.Change{{Charge: 2, Before: ledger.State{Category: 9}, After: ledger.State{Category: 9, NeedsReview: true}}},
 		FlagsApplied: 1,
 		Reasons:      map[int64][]string{2: {"attention-new-payee", "attention-large"}},
-		Income: []attention.Month{
-			{Start: march, Expected: 7500, Actual: 9200, Ready: true},
-			{Start: march.AddDate(0, 1, 0), Actual: 6000},
+		Income: []attention.Cycle{
+			{Month: march, Expected: 7500, Actual: 9200, Ready: true},
+			{Month: march.AddDate(0, 1, 0), Actual: 6000},
 		},
 		Tolerance:    1500,
 		Titles:       titles,
@@ -113,9 +113,9 @@ func TestWriteRunListsAttention(t *testing.T) {
 		"run RUN2: applied 1 of 1 changes",
 		"needing your attention (1):",
 		"2026-02-01 Card -12.50 ATM: attention-new-payee, attention-large",
-		"monthly income (2 months):",
+		"monthly income (2 cycles):",
 		"2026-03: expected 7500.00, got 9200.00, off by 1700.00: mismatch",
-		"2026-04: got 6000.00, waiting for the card bill",
+		"2026-04: got 6000.00, waiting for the card bill and rent",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
@@ -131,7 +131,7 @@ func TestWriteReplayTalliesAttention(t *testing.T) {
 			From: from, To: from.AddDate(0, 0, 20),
 			Reasons: map[string]int{"attention-large": 4, "attention-undecided": 30},
 			Weeks:   []attention.Week{{All: 10, WithoutUndecided: 2}, {All: 20, WithoutUndecided: 4}, {All: 6, WithoutUndecided: 0}},
-			Income:  []attention.Month{{Start: from, Expected: 7000, Actual: 7100, Ready: true}},
+			Income:  []attention.Cycle{{Month: from, Expected: 7000, Actual: 7100, Ready: true}},
 		},
 	}
 	var b strings.Builder

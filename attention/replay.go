@@ -26,7 +26,7 @@ type Tally struct {
 	From, To time.Time
 	Reasons  map[string]int // transactions drawing each reason
 	Weeks    []Week         // seven days each, from From
-	Income   []Month        // the income months in the period
+	Income   []Cycle        // the income cycles whose bills fall in the period
 }
 
 // Replay judges every transaction dated from through to as if it were new and needed
@@ -61,9 +61,9 @@ func Replay(txs []ledger.Transaction, from, to time.Time, s Settings, decide fun
 		}
 	}
 	category := func(t ledger.Transaction) ledger.CategoryID { return cats[t.ID] }
-	for m := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC); !m.After(to); m = m.AddDate(0, 1, 0) {
-		if mo, ok := s.Income.Check(txs, category, m); ok {
-			tally.Income = append(tally.Income, mo)
+	for _, c := range s.Income.Cycles(txs, category) {
+		if !c.Month.Before(monthOf(from)) && !c.Month.After(to) {
+			tally.Income = append(tally.Income, c)
 		}
 	}
 	return tally

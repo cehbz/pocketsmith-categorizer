@@ -44,12 +44,12 @@ func emptyMemo(t *testing.T) *memo.Memo {
 func TestAttendJudgesEachTransactionOnce(t *testing.T) {
 	txs := []ledger.Transaction{atx(1, "2026-03-05", -5, 0, "NEW SHOP", ledger.State{NeedsReview: true})}
 	seen := emptyMemo(t)
-	j := attend(txs, decide.Plan{Undecided: txs}, set, seen, mustParse("2026-03-06"))
+	j := attend(txs, decide.Plan{Undecided: txs}, set, seen)
 	if !slices.Equal(j.reasons[1], []string{attention.NewPayee, attention.Undecided}) || !slices.Equal(j.judged, []int64{1}) {
 		t.Fatalf("judgement = %+v", j)
 	}
 	remember(seen, j, nil)
-	if j := attend(txs, decide.Plan{Undecided: txs}, set, seen, mustParse("2026-03-06")); len(j.reasons) != 0 || len(j.judged) != 0 {
+	if j := attend(txs, decide.Plan{Undecided: txs}, set, seen); len(j.reasons) != 0 || len(j.judged) != 0 {
 		t.Errorf("second judgement = %+v, want none", j)
 	}
 }
@@ -60,7 +60,7 @@ func TestAttendJudgesOldTransactionsOnlyWhenTheyNeedReview(t *testing.T) {
 		atx(2, "2026-02-27", -5, 0, "WAITING SHOP", ledger.State{NeedsReview: true}),
 		atx(3, "2026-03-01", -5, 0, "NEW SHOP", ledger.State{Category: 4}),
 	}
-	j := attend(txs, decide.Plan{}, set, emptyMemo(t), mustParse("2026-03-06"))
+	j := attend(txs, decide.Plan{}, set, emptyMemo(t))
 	if !slices.Equal(j.judged, []int64{2, 3}) {
 		t.Errorf("judged = %v, want 2 3", j.judged)
 	}
@@ -69,48 +69,49 @@ func TestAttendJudgesOldTransactionsOnlyWhenTheyNeedReview(t *testing.T) {
 func TestAttendJudgesTheDecidedCategory(t *testing.T) {
 	credit := atx(1, "2026-03-09", 6000, 9000, "TRANSFER", ledger.State{NeedsReview: true})
 	plan := decide.Plan{Changes: []categorize.Change{{Charge: 1, Before: credit.State, After: ledger.State{Category: 1, Labels: []string{"auto-rule"}}}}}
-	j := attend([]ledger.Transaction{credit}, plan, set, emptyMemo(t), mustParse("2026-03-10"))
+	j := attend([]ledger.Transaction{credit}, plan, set, emptyMemo(t))
 	if !slices.Contains(j.reasons[1], attention.MonthlyIncome) || slices.Contains(j.reasons[1], attention.Undecided) {
 		t.Errorf("reasons = %v", j.reasons[1])
 	}
 }
 
-// mismatched is a March whose 9000 transfer is 1500.01 more than the month needed.
+// mismatched is a March whose 9000 transfer is 1500.01 more than the cycle needed.
 func mismatched() []ledger.Transaction {
 	return []ledger.Transaction{
 		atx(1, "2026-02-27", -10, 2000, "OPENING", ledger.State{}),
 		atx(2, "2026-03-09", 9000, 11000, "TRANSFER", ledger.State{Category: 1, Labels: []string{attention.MonthlyIncome}}),
-		atx(3, "2026-03-12", -6499.99, 4500.01, "CARD", ledger.State{Category: 2}),
+		atx(4, "2026-03-10", -1700, 9300, "RENT", ledger.State{Category: 3}),
+		atx(3, "2026-03-12", -4799.99, 4500.01, "CARD", ledger.State{Category: 2}),
 	}
 }
 
-func TestAttendFlagsAMismatchedMonthTheUserCleared(t *testing.T) {
+func TestAttendFlagsAMismatchedCycleTheUserCleared(t *testing.T) {
 	seen := emptyMemo(t)
-	for _, id := range []int64{1, 2, 3} {
+	for _, id := range []int64{1, 2, 3, 4} {
 		seen.Add(judgedKey(id))
 	}
-	j := attend(mismatched(), decide.Plan{}, set, seen, mustParse("2026-03-13"))
-	if !slices.Equal(j.reasons[2], []string{attention.IncomeMismatch}) || len(j.months) != 1 {
+	j := attend(mismatched(), decide.Plan{}, set, seen)
+	if !slices.Equal(j.reasons[2], []string{attention.IncomeMismatch}) || len(j.cycles) != 1 {
 		t.Errorf("judgement = %+v", j)
 	}
 	remember(seen, j, nil)
-	if j := attend(mismatched(), decide.Plan{}, set, seen, mustParse("2026-03-13")); len(j.months) != 0 {
-		t.Errorf("a checked month was checked again: %+v", j.months)
+	if j := attend(mismatched(), decide.Plan{}, set, seen); len(j.cycles) != 0 {
+		t.Errorf("a checked cycle was checked again: %+v", j.cycles)
 	}
 }
 
-func TestAttendRetriesAMonthWithoutItsBill(t *testing.T) {
+func TestAttendRetriesACycleWithoutItsBill(t *testing.T) {
 	seen := emptyMemo(t)
-	j := attend(mismatched()[:2], decide.Plan{}, set, seen, mustParse("2026-03-10"))
+	j := attend(mismatched()[:2], decide.Plan{}, set, seen)
 	remember(seen, j, nil)
-	if len(j.months) != 1 || j.months[0].Ready || seen.Seen(incomeKey(j.months[0].Start)) {
-		t.Errorf("months = %+v; an unready month was remembered", j.months)
+	if len(j.cycles) != 1 || j.cycles[0].Ready || seen.Seen(incomeKey(j.cycles[0].Month)) {
+		t.Errorf("cycles = %+v; an unready cycle was remembered", j.cycles)
 	}
 }
 
 func TestRememberSkipsUnwrittenJudgements(t *testing.T) {
 	seen := emptyMemo(t)
-	j := judgement{judged: []int64{1, 2}, months: []attention.Month{{Start: mustParse("2026-03-01"), Ready: true, Credits: []ledger.Transaction{{ID: 2}}}}}
+	j := judgement{judged: []int64{1, 2}, cycles: []attention.Cycle{{Month: mustParse("2026-03-01"), Ready: true, Credits: []ledger.Transaction{{ID: 2}}}}}
 	remember(seen, j, []categorize.Change{{Charge: 2}})
 	if !seen.Seen(judgedKey(1)) || seen.Seen(judgedKey(2)) || seen.Seen(incomeKey(mustParse("2026-03-01"))) {
 		t.Error("remembered an unwritten judgement, or forgot a written one")
@@ -124,15 +125,15 @@ func TestLandedDropsUnwrittenReasons(t *testing.T) {
 	}
 }
 
-func TestAttendSkipsAMonthWithACorrectedCredit(t *testing.T) {
+func TestAttendSkipsACycleWithACorrectedCredit(t *testing.T) {
 	seen := emptyMemo(t)
-	for _, id := range []int64{1, 2, 3} {
+	for _, id := range []int64{1, 2, 3, 4} {
 		seen.Add(judgedKey(id))
 	}
 	plan := decide.Plan{Corrections: []categorize.Change{{Charge: 2}}}
-	j := attend(mismatched(), plan, set, seen, mustParse("2026-03-13"))
-	if len(j.months) != 0 || len(j.reasons[2]) != 0 {
-		t.Errorf("judgement = %+v, want the month skipped", j)
+	j := attend(mismatched(), plan, set, seen)
+	if len(j.cycles) != 0 || len(j.reasons[2]) != 0 {
+		t.Errorf("judgement = %+v, want the cycle skipped", j)
 	}
 }
 
@@ -140,14 +141,22 @@ func TestAttendJudgesTheCreditsAMismatchFlags(t *testing.T) {
 	late := set
 	late.Start = mustParse("2026-03-10")
 	seen := emptyMemo(t)
-	j := attend(mismatched(), decide.Plan{}, late, seen, mustParse("2026-03-13"))
+	j := attend(mismatched(), decide.Plan{}, late, seen)
 	if !slices.Contains(j.judged, 2) || !slices.Contains(j.reasons[2], attention.MonthlyIncome) || !slices.Contains(j.reasons[2], attention.IncomeMismatch) {
 		t.Fatalf("judgement = %+v, want the flagged credit judged", j)
 	}
 	remember(seen, j, nil)
 	flagged := mismatched()
 	flagged[1].State.NeedsReview = true
-	if j := attend(flagged, decide.Plan{}, late, seen, mustParse("2026-03-13")); len(j.reasons) != 0 || len(j.judged) != 0 {
+	if j := attend(flagged, decide.Plan{}, late, seen); len(j.reasons) != 0 || len(j.judged) != 0 {
 		t.Errorf("second judgement = %+v, want none", j)
+	}
+}
+
+func TestAttendLeavesCyclesBilledBeforeTheStartMonth(t *testing.T) {
+	late := set
+	late.Start = mustParse("2026-04-01")
+	if j := attend(mismatched(), decide.Plan{}, late, emptyMemo(t)); len(j.cycles) != 0 {
+		t.Errorf("cycles = %+v, want none before April", j.cycles)
 	}
 }

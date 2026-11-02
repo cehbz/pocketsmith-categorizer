@@ -26,7 +26,7 @@ type Run struct {
 	Flags          []categorize.Change // transactions put in review without a decision, applied after Changes
 	FlagsApplied   int
 	Reasons        map[int64][]string  // why each transaction put in review needs the user
-	Income         []attention.Month   // income months checked
+	Income         []attention.Cycle   // income cycles checked
 	Tolerance      float64             // income mismatch tolerance
 	Corrections    []categorize.Change // categorizer labels removed after the user recategorized
 	Amendments     []categorize.Change // corrections of a rule's decision: Source is the rule, After the user's category
@@ -66,9 +66,9 @@ func WriteRun(w io.Writer, r Run) error {
 	for _, id := range byDate(r.Reasons, r.Transactions) {
 		p.f("  %s: %s\n", describe(r.Transactions[id]), strings.Join(r.Reasons[id], ", "))
 	}
-	p.f("monthly income (%d months):\n", len(r.Income))
-	for _, m := range r.Income {
-		p.f("  %s\n", month(m, r.Tolerance))
+	p.f("monthly income (%d cycles):\n", len(r.Income))
+	for _, c := range r.Income {
+		p.f("  %s\n", cycle(c, r.Tolerance))
 	}
 	p.f("your corrections (%d):\n", len(r.Corrections))
 	for _, c := range r.Corrections {
@@ -145,8 +145,8 @@ func WriteReplay(w io.Writer, r Replay) error {
 		for _, reason := range slices.Sorted(maps.Keys(a.Reasons)) {
 			p.f("  %s: %d (%.1f a week)\n", reason, a.Reasons[reason], float64(a.Reasons[reason])/float64(len(a.Weeks)))
 		}
-		for _, m := range a.Income {
-			p.f("  %s\n", month(m, r.Tolerance))
+		for _, c := range a.Income {
+			p.f("  %s\n", cycle(c, r.Tolerance))
 		}
 	}
 	return p.err
@@ -164,14 +164,14 @@ func byDate(reasons map[int64][]string, txs map[int64]ledger.Transaction) []int6
 	return ids
 }
 
-// month describes an income month's check.
-func month(m attention.Month, tolerance float64) string {
-	label := m.Start.Format("2006-01")
-	if !m.Ready {
-		return fmt.Sprintf("%s: got %.2f, waiting for the card bill", label, m.Actual)
+// cycle describes an income cycle's check, named by its bill's month.
+func cycle(c attention.Cycle, tolerance float64) string {
+	label := c.Month.Format("2006-01")
+	if !c.Ready {
+		return fmt.Sprintf("%s: got %.2f, waiting for the card bill and rent", label, c.Actual)
 	}
-	s := fmt.Sprintf("%s: expected %.2f, got %.2f, off by %.2f", label, m.Expected, m.Actual, m.Actual-m.Expected)
-	if m.Mismatch(tolerance) {
+	s := fmt.Sprintf("%s: expected %.2f, got %.2f, off by %.2f", label, c.Expected, c.Actual, c.Actual-c.Expected)
+	if c.Mismatch(tolerance) {
 		s += ": mismatch"
 	}
 	return s

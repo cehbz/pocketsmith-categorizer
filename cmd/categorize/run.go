@@ -76,7 +76,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 
 	plan := decide.Make(txs, []decide.Layer{s.rules}, last, s.today.AddDate(0, 0, -*lookback))
-	j := attend(txs, plan, s.attention, judged, s.today)
+	j := attend(txs, plan, s.attention, judged)
 	plan.Flag(byID, j.reasons)
 	inheritSources(plan.Flags, last)
 
@@ -131,7 +131,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		Proposals: proposals, Threshold: threshold, ThresholdFound: found, Trials: trials,
 		Titles: s.titles, Transactions: byID,
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
-		Income: j.months, Tolerance: s.attention.Income.Tolerance,
+		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)

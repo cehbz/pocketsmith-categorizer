@@ -192,7 +192,7 @@ func (c Config) Settings(cats []ledger.Category) (attention.Settings, error) {
 	}, nil
 }
 
-// JudgedPath is the record of transactions judged and income months checked, under home.
+// JudgedPath is the record of transactions judged and income cycles checked, under home.
 func JudgedPath(home string) string {
 	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "judged.json")
 }

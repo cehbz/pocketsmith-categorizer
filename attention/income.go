@@ -17,64 +17,96 @@ type Income struct {
 	Rent      ledger.CategoryID
 	Cash      ledger.CategoryID // cash withdrawn from the account
 	Target    float64           // the balance the account is topped up to
-	Tolerance float64           // how far a month may land from the estimate
+	Tolerance float64           // how far a cycle may land from the estimate
 }
 
-// Month is an income month's check.
-type Month struct {
-	Start    time.Time            // the month's first day
-	Credits  []ledger.Transaction // the month's Monthly Income credits
-	Expected float64              // the Monthly Income the month needed
+// Cycle is an income cycle's check. A cycle runs from just after one card bill through the
+// next; its rent is the one posted in it, or when it has none, the first posted after its bill.
+type Cycle struct {
+	Month    time.Time            // the first day of the month its bill posts in
+	Credits  []ledger.Transaction // the cycle's Monthly Income credits
+	Expected float64              // the Monthly Income the cycle needed
 	Actual   float64              // the Monthly Income it got
-	Ready    bool                 // the card bill has posted after the first credit, whose closing balance is known
+	Ready    bool                 // its bill and rent have posted, and its first credit's closing balance is known
 }
 
-// Mismatch reports whether the month's Monthly Income missed the estimate by more than
-// tolerance; a month whose bill hasn't posted can't miss.
-func (m Month) Mismatch(tolerance float64) bool {
-	return m.Ready && math.Abs(m.Actual-m.Expected) > tolerance
+// Mismatch reports whether the cycle's Monthly Income missed the estimate by more than
+// tolerance; a cycle whose bill or rent hasn't posted can't miss.
+func (c Cycle) Mismatch(tolerance float64) bool {
+	return c.Ready && math.Abs(c.Actual-c.Expected) > tolerance
 }
 
-// Check checks the income month starting at start: the account's balance before the
-// month's first Monthly Income credit, plus the month's Monthly Income credits, less the card
-// bill, rent and cash posted after that credit, should land at the target. category gives each
-// transaction's category as the run leaves it. ok is false for a month without Monthly Income.
-func (in Income) Check(txs []ledger.Transaction, category func(ledger.Transaction) ledger.CategoryID, start time.Time) (m Month, ok bool) {
-	var month []ledger.Transaction
+// Cycles checks the account's income cycles that have Monthly Income, in order: the balance
+// before a cycle's first Monthly Income credit, plus its credits, less its bill, rent and the
+// cash withdrawn after that credit, should land at the target. category gives each
+// transaction's category as the run leaves it.
+func (in Income) Cycles(txs []ledger.Transaction, category func(ledger.Transaction) ledger.CategoryID) []Cycle {
+	var account []ledger.Transaction
 	for _, t := range txs {
-		if t.Account.Name == in.Account && t.Date.Year() == start.Year() && t.Date.Month() == start.Month() {
-			month = append(month, t)
+		if t.Account.Name == in.Account {
+			account = append(account, t)
 		}
 	}
-	month = InOrder(month)
-	m.Start = start
-	first := -1
-	for i, t := range month {
-		if t.Amount > 0 && category(t) == in.Category {
-			if first < 0 {
-				first = i
+	account = InOrder(account)
+	var spans [][]ledger.Transaction // each through its bill; the last one open
+	from := 0
+	for i, t := range account {
+		if category(t) == in.Bill && t.Amount < 0 {
+			spans = append(spans, account[from:i+1])
+			from = i + 1
+		}
+	}
+	spans = append(spans, account[from:])
+	var out []Cycle
+	taken := map[int64]bool{} // late rents, taken by the cycle before
+	for i, span := range spans {
+		c, first, rent := Cycle{}, -1, false
+		for j, t := range span {
+			switch cat := category(t); {
+			case taken[t.ID]:
+			case t.Amount > 0 && cat == in.Category:
+				if first < 0 {
+					first = j
+					c.Expected = in.Target - (t.ClosingBalance - t.Amount)
+				}
+				c.Credits = append(c.Credits, t)
+				c.Actual += t.Amount
+			case cat == in.Rent:
+				rent = true
+				if first >= 0 {
+					c.Expected -= t.Amount
+				}
+			case first >= 0 && (cat == in.Bill || cat == in.Cash):
+				c.Expected -= t.Amount
 			}
-			m.Credits = append(m.Credits, t)
-			m.Actual += t.Amount
 		}
-	}
-	if first < 0 {
-		return Month{}, false
-	}
-	m.Expected = in.Target - (month[first].ClosingBalance - month[first].Amount)
-	for _, t := range month[first+1:] {
-		switch category(t) {
-		case in.Bill:
-			m.Expected -= t.Amount
-			m.Ready = m.Ready || t.Amount < 0
-		case in.Rent, in.Cash:
-			m.Expected -= t.Amount
+		if first < 0 {
+			continue
 		}
+		closed := i < len(spans)-1
+		if closed && !rent {
+			if j := slices.IndexFunc(spans[i+1], func(t ledger.Transaction) bool { return category(t) == in.Rent }); j >= 0 {
+				late := spans[i+1][j]
+				taken[late.ID], rent = true, true
+				c.Expected -= late.Amount
+			}
+		}
+		switch {
+		case closed:
+			c.Month = monthOf(span[len(span)-1].Date)
+		case i > 0:
+			c.Month = monthOf(spans[i-1][len(spans[i-1])-1].Date).AddDate(0, 1, 0)
+		default:
+			c.Month = monthOf(span[first].Date)
+		}
+		// A zero closing balance is PocketSmith's missing one; the estimate can't be trusted.
+		c.Ready = closed && rent && span[first].ClosingBalance != 0
+		out = append(out, c)
 	}
-	// A zero closing balance is PocketSmith's missing one; the estimate can't be trusted.
-	m.Ready = m.Ready && month[first].ClosingBalance != 0
-	return m, true
+	return out
 }
+
+func monthOf(d time.Time) time.Time { return time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, time.UTC) }
 
 // InOrder sorts one account's transactions into posting order: by date, and within a day
 // by following the closing balances, each transaction opening at the balance the one

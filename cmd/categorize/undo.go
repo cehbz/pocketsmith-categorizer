@@ -99,11 +99,14 @@ func (r *reading) Charge(ctx context.Context, id int64) (ledger.Charge, error) {
 	return c, err
 }
 
-// forget drops the judgements of the reverted charges and the checks of their income
-// months, so the next run judges them again.
+// forget drops the judgements of the reverted charges and the checks of the income cycles
+// they may belong to, so the next run judges them again. A charge belongs to the cycle billed
+// in its month or the next.
 func forget(seen *memo.Memo, reverted []ledger.Charge) {
 	for _, c := range reverted {
+		month := time.Date(c.Date.Year(), c.Date.Month(), 1, 0, 0, 0, 0, time.UTC)
 		seen.Forget(judgedKey(c.ID))
-		seen.Forget(incomeKey(c.Date))
+		seen.Forget(incomeKey(month))
+		seen.Forget(incomeKey(month.AddDate(0, 1, 0)))
 	}
 }
