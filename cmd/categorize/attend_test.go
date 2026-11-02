@@ -135,3 +135,19 @@ func TestAttendSkipsAMonthWithACorrectedCredit(t *testing.T) {
 		t.Errorf("judgement = %+v, want the month skipped", j)
 	}
 }
+
+func TestAttendJudgesTheCreditsAMismatchFlags(t *testing.T) {
+	late := set
+	late.Start = mustParse("2026-03-10")
+	seen := emptyMemo(t)
+	j := attend(mismatched(), decide.Plan{}, late, seen, mustParse("2026-03-13"))
+	if !slices.Contains(j.judged, 2) || !slices.Contains(j.reasons[2], attention.MonthlyIncome) || !slices.Contains(j.reasons[2], attention.IncomeMismatch) {
+		t.Fatalf("judgement = %+v, want the flagged credit judged", j)
+	}
+	remember(seen, j, nil)
+	flagged := mismatched()
+	flagged[1].State.NeedsReview = true
+	if j := attend(flagged, decide.Plan{}, late, seen, mustParse("2026-03-13")); len(j.reasons) != 0 || len(j.judged) != 0 {
+		t.Errorf("second judgement = %+v, want none", j)
+	}
+}
