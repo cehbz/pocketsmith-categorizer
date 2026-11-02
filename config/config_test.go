@@ -7,6 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
 func write(t *testing.T, name, content string, mode os.FileMode) string {
@@ -132,5 +135,77 @@ func TestRulesAndMemoPathsAreUnderHome(t *testing.T) {
 	}
 	if got := MemoPath("/h"); got != "/h/.local/state/pocketsmith-categorizer/shown.json" {
 		t.Errorf("MemoPath = %q", got)
+	}
+}
+
+const attentionConfig = `
+[attention]
+start = "2026-03-01"
+large = 500
+sd = 1
+
+[income]
+account = "Checking"
+category = "Monthly Income"
+bill = "Card Payment"
+rent = "Rent"
+target = 3000
+tolerance = 1500
+`
+
+var cats = []ledger.Category{{ID: 1, Title: "Monthly Income"}, {ID: 2, Title: "Card Payment"}, {ID: 3, Title: "Rent"}}
+
+func TestSettingsResolvesTitles(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full+attentionConfig, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.Settings(cats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Start.Equal(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)) || s.Size.Absolute != 500 || s.Size.SD != 1 {
+		t.Errorf("settings = %+v", s)
+	}
+	in := s.Income
+	if in.Account != "Checking" || in.Category != 1 || in.Bill != 2 || in.Rent != 3 || in.Target != 3000 || in.Tolerance != 1500 {
+		t.Errorf("income = %+v", in)
+	}
+}
+
+func TestSettingsNamesWhatIsMissing(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Settings(cats)
+	if err == nil {
+		t.Fatal("Settings accepted a config without them")
+	}
+	for _, f := range []string{"attention.start", "attention.large", "attention.sd", "income.account", "income.category", "income.bill", "income.rent", "income.target", "income.tolerance"} {
+		if !strings.Contains(err.Error(), f) {
+			t.Errorf("error %q doesn't name %s", err, f)
+		}
+	}
+}
+
+func TestSettingsRejectsUnknownTitlesAndBadDates(t *testing.T) {
+	for name, content := range map[string]string{
+		"title": strings.Replace(attentionConfig, `rent = "Rent"`, `rent = "Lodging"`, 1),
+		"date":  strings.Replace(attentionConfig, `"2026-03-01"`, `"March"`, 1),
+	} {
+		c, err := Load(write(t, "config.toml", full+content, 0o600))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Settings(cats); err == nil {
+			t.Errorf("%s: Settings succeeded", name)
+		}
+	}
+}
+
+func TestJudgedPathIsUnderHome(t *testing.T) {
+	if got := JudgedPath("/h"); got != "/h/.local/state/pocketsmith-categorizer/judged.json" {
+		t.Errorf("JudgedPath = %q", got)
 	}
 }

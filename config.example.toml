@@ -21,3 +21,18 @@ delivery = 0
 [tips]
 ride = [60]
 delivery = [20, 50]
+
+# When a transaction needs your attention.
+[attention]
+start = "2026-01-01"   # transactions from this date on are judged even when they don't need review
+large = 500            # an amount at least this large always needs attention
+sd = 1                 # standard deviations above a payee's usual amount that need attention
+
+# The monthly income check. Categories are PocketSmith category titles.
+[income]
+account = "Checking"       # the account Monthly Income arrives in
+category = "Monthly Income"
+bill = "Card Payment"      # the card bill paid from the account
+rent = "Rent"
+target = 3000              # the balance the account is topped up to
+tolerance = 1500           # how far a month may land from the estimate
