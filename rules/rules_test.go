@@ -3,8 +3,10 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
@@ -41,10 +43,11 @@ account = "Checking"
 type = "debit"
 min = 10
 max = 100
+days = [8, 11]
 category = "Phone"
 `)
 	r := rs[0]
-	if r.Payee != `(?i)^acme mobile\b` || r.Account != "Checking" || r.Type != "debit" || r.Min != 10 || r.Max != 100 || r.CategoryID() != 3 {
+	if r.Payee != `(?i)^acme mobile\b` || r.Account != "Checking" || r.Type != "debit" || r.Min != 10 || r.Max != 100 || !slices.Equal(r.Days, []int{8, 11}) || r.CategoryID() != 3 {
 		t.Errorf("rule = %+v, category %d", r, r.CategoryID())
 	}
 }
@@ -56,6 +59,10 @@ func TestLoadRejectsBadRules(t *testing.T) {
 		"bad type":         "[[rule]]\npayee = \"x\"\ntype = \"both\"\ncategory = \"Phone\"\n",
 		"bad range":        "[[rule]]\npayee = \"x\"\nmin = 5\nmax = 1\ncategory = \"Phone\"\n",
 		"no condition":     "[[rule]]\ncategory = \"Phone\"\n",
+		"day zero":         "[[rule]]\npayee = \"x\"\ndays = [0, 5]\ncategory = \"Phone\"\n",
+		"day 32":           "[[rule]]\npayee = \"x\"\ndays = [8, 32]\ncategory = \"Phone\"\n",
+		"reversed days":    "[[rule]]\npayee = \"x\"\ndays = [11, 8]\ncategory = \"Phone\"\n",
+		"one day":          "[[rule]]\npayee = \"x\"\ndays = [8]\ncategory = \"Phone\"\n",
 		"unknown key":      "[[rule]]\npayee = \"x\"\ncategry = \"Phone\"\ncategory = \"Phone\"\n",
 	} {
 		if _, err := load(t, content); err == nil {
@@ -92,6 +99,28 @@ func TestMatchesEveryCondition(t *testing.T) {
 	}
 }
 
+func TestMatchesTheDayWindow(t *testing.T) {
+	r := mustLoad(t, "[[rule]]\npayee = \"(?i)^funds transfer\"\ndays = [8, 11]\ncategory = \"Food\"\n")[0]
+	for day, want := range map[int]bool{7: false, 8: true, 10: true, 11: true, 12: false} {
+		tr := tx("Funds Transfer from Brokerage", "Checking", 5000, ledger.State{})
+		tr.Date = time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC)
+		if got := r.Matches(tr); got != want {
+			t.Errorf("day %d: Matches = %v, want %v", day, got, want)
+		}
+	}
+}
+
+func TestNoDayWindowMatchesAnyDay(t *testing.T) {
+	r := mustLoad(t, "[[rule]]\npayee = \"(?i)^funds transfer\"\ncategory = \"Food\"\n")[0]
+	for _, day := range []int{1, 15, 31} {
+		tr := tx("Funds Transfer from Brokerage", "Checking", 5000, ledger.State{})
+		tr.Date = time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC)
+		if !r.Matches(tr) {
+			t.Errorf("day %d: no match", day)
+		}
+	}
+}
+
 func TestFirstMatchingRuleDecides(t *testing.T) {
 	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)fitapp\"\ncategory = \"Food\"\n[[rule]]\npayee = \"(?i)^google\"\ncategory = \"Phone\"\n")
 	d, ok := rs.Decide(tx("GOOGLE *Fitapp", "Card", -5, ledger.State{}))
@@ -108,6 +137,10 @@ func TestKeyChangesWithTheRule(t *testing.T) {
 	b := mustLoad(t, "[[rule]]\npayee = \"x\"\ncategory = \"Food\"\n")[0]
 	if a.Key() == b.Key() {
 		t.Errorf("keys equal: %q", a.Key())
+	}
+	c := mustLoad(t, "[[rule]]\npayee = \"x\"\ndays = [8, 11]\ncategory = \"Phone\"\n")[0]
+	if a.Key() == c.Key() {
+		t.Errorf("a day window left the key unchanged: %q", a.Key())
 	}
 }
 

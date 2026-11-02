@@ -24,6 +24,7 @@ type Rule struct {
 	Type     string  `toml:"type"`     // "debit" or "credit"
 	Min      float64 `toml:"min"`      // smallest absolute amount
 	Max      float64 `toml:"max"`      // largest absolute amount; zero means no limit
+	Days     []int   `toml:"days"`     // first and last day of the month, inclusive; empty means any day
 	Category string  `toml:"category"` // category title
 
 	payee *regexp.Regexp
@@ -82,6 +83,9 @@ func (r *Rule) check(ids map[string]ledger.CategoryID) error {
 	if r.Min < 0 || r.Max < 0 || r.Max != 0 && r.Min > r.Max {
 		return fmt.Errorf("amount range %v to %v", r.Min, r.Max)
 	}
+	if len(r.Days) != 0 && (len(r.Days) != 2 || r.Days[0] < 1 || r.Days[1] > 31 || r.Days[0] > r.Days[1]) {
+		return fmt.Errorf("days %v is not a first and last day of the month", r.Days)
+	}
 	id, ok := ids[r.Category]
 	if !ok {
 		return fmt.Errorf("category %q is not a PocketSmith category", r.Category)
@@ -101,13 +105,21 @@ func (r Rule) Matches(t ledger.Transaction) bool {
 	if r.Type == "debit" && t.Amount >= 0 || r.Type == "credit" && t.Amount <= 0 {
 		return false
 	}
+	if len(r.Days) == 2 && (t.Date.Day() < r.Days[0] || t.Date.Day() > r.Days[1]) {
+		return false
+	}
 	a := math.Abs(t.Amount)
 	return a >= r.Min && (r.Max == 0 || a <= r.Max)
 }
 
-// Key identifies the rule by its conditions and category; it changes when the rule does.
+// Key identifies the rule by its conditions and category; it changes when the rule does. An
+// empty day window is left out.
 func (r Rule) Key() string {
-	return fmt.Sprintf("payee=%q account=%q type=%q min=%v max=%v category=%q", r.Payee, r.Account, r.Type, r.Min, r.Max, r.Category)
+	days := ""
+	if len(r.Days) != 0 {
+		days = fmt.Sprintf(" days=%v", r.Days)
+	}
+	return fmt.Sprintf("payee=%q account=%q type=%q min=%v max=%v%s category=%q", r.Payee, r.Account, r.Type, r.Min, r.Max, days, r.Category)
 }
 
 // CategoryID is the PocketSmith category the rule gives.
