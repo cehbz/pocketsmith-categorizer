@@ -3,7 +3,9 @@ package report
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
@@ -80,6 +82,70 @@ func TestWriteReplay(t *testing.T) {
 		`payee="(?i)acme"`,
 		"2 matches, 1 agree",
 		"2026-02-01 Card -12.50 ACME 2: you chose Food, rule says Phone",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteRunListsAttention(t *testing.T) {
+	march := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	r := Run{
+		RunID:        "RUN2",
+		Flags:        []categorize.Change{{Charge: 2, Before: ledger.State{Category: 9}, After: ledger.State{Category: 9, NeedsReview: true}}},
+		FlagsApplied: 1,
+		Reasons:      map[int64][]string{2: {"attention-new-payee", "attention-large"}},
+		Income: []attention.Month{
+			{Start: march, Expected: 7500, Actual: 9200, Ready: true},
+			{Start: march.AddDate(0, 1, 0), Actual: 6000},
+		},
+		Tolerance:    1500,
+		Titles:       titles,
+		Transactions: map[int64]ledger.Transaction{2: rtx(2, "ATM", 9)},
+	}
+	var b strings.Builder
+	if err := WriteRun(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		"run RUN2: applied 1 of 1 changes",
+		"needing your attention (1):",
+		"2026-02-01 Card -12.50 ATM: attention-new-payee, attention-large",
+		"monthly income (2 months):",
+		"2026-03: expected 7500.00, got 9200.00, off by 1700.00: mismatch",
+		"2026-04: got 6000.00, waiting for the card bill",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteReplayTalliesAttention(t *testing.T) {
+	from := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	r := Replay{
+		From: from, To: from.AddDate(0, 0, 20), Titles: titles, Tolerance: 1500,
+		Attention: &attention.Tally{
+			From: from, To: from.AddDate(0, 0, 20),
+			Reasons: map[string]int{"attention-large": 4, "attention-undecided": 30},
+			Weeks:   []attention.Week{{All: 10, WithoutUndecided: 2}, {All: 20, WithoutUndecided: 4}, {All: 6, WithoutUndecided: 0}},
+			Income:  []attention.Month{{Start: from, Expected: 7000, Actual: 7100, Ready: true}},
+		},
+	}
+	var b strings.Builder
+	if err := WriteReplay(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		"attention 2026-05-01..2026-05-21, every transaction judged as new: 36 flagged over 3 weeks",
+		"all reasons: 12.0 a week (median 10, max 20)",
+		"without undecided: 2.0 a week (median 2, max 4)",
+		"attention-large: 4 (1.3 a week)",
+		"attention-undecided: 30 (10.0 a week)",
+		"2026-05: expected 7000.00, got 7100.00, off by 100.00",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
