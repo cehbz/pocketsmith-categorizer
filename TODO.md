@@ -4,3 +4,4 @@
 - Trips layer: infer trips from bursts of non-home merchants and Grab absence, keep the trip list in private config for the user to correct, remap a trip's spending, past trips' included, to the Big subcategories with a per-trip label (a visa run is a trip with a `visa-run` label too), and hold pre-trip bookings under a placeholder label until a trip claims them.
 - Evidence layer: read Gmail through our own REST client for Grab receipts, travel confirmations and Wise transfer recipients. A Wise debit on Checking is sometimes a top-up of a THB balance that later funds several transfers, so it has no single recipient.
 - Automatic runs: schedule `categorize run`, retrying the PocketSmith timeouts seen in acceptance (30 s with no response headers, on a PUT and on `GET /me`).
+- Grab and Patreon can include widely varying amounts under a single payee, which can trigger `attention-large`; consider adding more context to disambiguate.
