@@ -46,7 +46,7 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	key, err := config.ReadKey(ctx, "op", cfg.KeyRef)
+	key, err := config.ReadSecret(ctx, "op", cfg.KeyRef)
 	if err != nil {
 		return err
 	}

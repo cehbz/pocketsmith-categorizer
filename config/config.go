@@ -1,10 +1,11 @@
-// Package config loads the categorizer's local configuration and its PocketSmith key.
+// Package config loads the categorizer's local configuration and its secrets.
 package config
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -98,9 +99,13 @@ func Paths(home string) (configFile, journalDir string) {
 		filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "journal")
 }
 
-// ReadKey returns the secret at ref through the 1Password CLI op. A failure reports op's
+// ReadSecret returns the secret at ref: through the 1Password CLI op for an op:// reference,
+// otherwise from the file ref names, which only its owner may read. A failure reports op's
 // stderr, never its stdout, which may hold the secret.
-func ReadKey(ctx context.Context, op, ref string) (string, error) {
+func ReadSecret(ctx context.Context, op, ref string) (string, error) {
+	if !strings.HasPrefix(ref, "op://") {
+		return readFile(ref)
+	}
 	out, err := exec.CommandContext(ctx, op, "read", ref).Output()
 	if err != nil {
 		var exit *exec.ExitError
@@ -116,6 +121,26 @@ func ReadKey(ctx context.Context, op, ref string) (string, error) {
 		return "", errors.New("op read " + ref + ": empty secret")
 	}
 	return key, nil
+}
+
+// readFile returns the secret in an owner-only regular file.
+func readFile(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("secret: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("secret %s: mode %v, want a regular file only its owner can read", path, info.Mode())
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("secret: %w", err)
+	}
+	secret := strings.TrimSpace(string(b))
+	if secret == "" {
+		return "", errors.New("secret " + path + ": empty")
+	}
+	return secret, nil
 }
 
 // RulesPath is the private rules file under home.

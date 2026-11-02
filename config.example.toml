@@ -1,6 +1,7 @@
 # Copy to ~/.config/pocketsmith-categorizer/config.toml and fill in.
 
-# 1Password reference to the PocketSmith developer key.
+# The PocketSmith developer key: a 1Password reference (op://...), read with a prompt, or the
+# path of a file only its owner can read, for unattended runs.
 key_ref = "op://VAULT/ITEM/FIELD"
 
 # PocketSmith transaction account that carries the Grab charges.

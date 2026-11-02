@@ -87,22 +87,54 @@ func TestPathsAreUnderHome(t *testing.T) {
 	}
 }
 
-func TestReadKeyRunsOpRead(t *testing.T) {
+func TestReadSecretRunsOpRead(t *testing.T) {
 	op := write(t, "op", "#!/bin/sh\n[ \"$1\" = read ] && [ \"$2\" = \"op://Vault/Item/field\" ] && echo secret-value\n", 0o755)
-	key, err := ReadKey(context.Background(), op, "op://Vault/Item/field")
+	key, err := ReadSecret(context.Background(), op, "op://Vault/Item/field")
 	if err != nil || key != "secret-value" {
-		t.Errorf("ReadKey = %q, %v", key, err)
+		t.Errorf("ReadSecret = %q, %v", key, err)
 	}
 }
 
-func TestReadKeyFailsOnEmptyOrFailedOutput(t *testing.T) {
+func TestReadSecretFailsOnEmptyOrFailedOutput(t *testing.T) {
 	for name, script := range map[string]string{
 		"empty":  "#!/bin/sh\necho\n",
 		"failed": "#!/bin/sh\nexit 1\n",
 	} {
 		op := write(t, "op", script, 0o755)
-		if _, err := ReadKey(context.Background(), op, "op://Vault/Item/field"); err == nil {
-			t.Errorf("%s: ReadKey succeeded", name)
+		if _, err := ReadSecret(context.Background(), op, "op://Vault/Item/field"); err == nil {
+			t.Errorf("%s: ReadSecret succeeded", name)
+		}
+	}
+}
+
+func TestReadSecretReadsAnOwnerOnlyFile(t *testing.T) {
+	path := write(t, "key", "secret-value\n", 0o600)
+	key, err := ReadSecret(context.Background(), "no-op", path)
+	if err != nil || key != "secret-value" {
+		t.Errorf("ReadSecret = %q, %v", key, err)
+	}
+}
+
+func TestReadSecretRefusesAFileOthersCanRead(t *testing.T) {
+	for _, mode := range []os.FileMode{0o640, 0o604} {
+		path := write(t, "key", "secret-value\n", mode)
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		_, err := ReadSecret(context.Background(), "no-op", path)
+		if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), mode.String()) {
+			t.Errorf("mode %v: err = %v, want the path and mode named", mode, err)
+		}
+	}
+}
+
+func TestReadSecretRefusesAnEmptyOrMissingFile(t *testing.T) {
+	for name, path := range map[string]string{
+		"empty":   write(t, "key", "\n", 0o600),
+		"missing": filepath.Join(t.TempDir(), "absent"),
+	} {
+		if _, err := ReadSecret(context.Background(), "no-op", path); err == nil {
+			t.Errorf("%s: ReadSecret succeeded", name)
 		}
 	}
 }
@@ -118,11 +150,11 @@ func TestLoadRejectsUnknownKeys(t *testing.T) {
 	}
 }
 
-func TestReadKeyReportsOpStderrButNotStdout(t *testing.T) {
+func TestReadSecretReportsOpStderrButNotStdout(t *testing.T) {
 	op := write(t, "op", "#!/bin/sh\necho partial-secret\necho \"not signed in\" >&2\nexit 1\n", 0o755)
-	_, err := ReadKey(context.Background(), op, "op://Vault/Item/field")
+	_, err := ReadSecret(context.Background(), op, "op://Vault/Item/field")
 	if err == nil {
-		t.Fatal("ReadKey succeeded")
+		t.Fatal("ReadSecret succeeded")
 	}
 	if want := "op read op://Vault/Item/field: exit status 1: not signed in"; err.Error() != want {
 		t.Errorf("error = %q, want %q", err, want)

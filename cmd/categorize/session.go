@@ -30,7 +30,7 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, err := config.ReadKey(ctx, "op", cfg.KeyRef)
+	key, err := config.ReadSecret(ctx, "op", cfg.KeyRef)
 	if err != nil {
 		return nil, err
 	}
