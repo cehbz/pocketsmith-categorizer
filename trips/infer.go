@@ -12,9 +12,10 @@ const legGap = 2 // most days between a leg's signal days
 
 // Settings are what inference and placing need besides the transactions.
 type Settings struct {
-	Kinds  Kinds
-	Places []string  // home places, as named in merchant names and payees
-	Start  time.Time // the attention start: trips ending before it are back-filled unflagged
+	Kinds       Kinds
+	Places      []string  // home places, as named in merchant names and payees
+	Start       time.Time // the attention start: trips ending before it are back-filled unflagged
+	CashAccount string    // the account cash is withdrawn from
 }
 
 // Leg is a run of trip-signal days.
@@ -83,4 +84,10 @@ func Legs(txs []Transaction, s Settings, from time.Time) []Leg {
 // homeBetween reports whether home activity falls strictly between a and b.
 func homeBetween(txs []Transaction, m *Merchants, a, b time.Time) bool {
 	return slices.ContainsFunc(txs, func(t Transaction) bool { return t.Date.After(a) && t.Date.Before(b) && m.HomeActivity(t) })
+}
+
+// IsCash reports whether t is a withdrawal or an ATM fee rebate: money of kind Cash on the
+// cash account.
+func (s Settings) IsCash(t Transaction) bool {
+	return s.CashAccount != "" && t.Account.Name == s.CashAccount && s.Kinds.Of(t.Home.Category, t.Evidence.Code) == Cash
 }
