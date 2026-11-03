@@ -15,9 +15,9 @@ type Income struct {
 	Category  ledger.CategoryID // Monthly Income
 	Bill      ledger.CategoryID // the card bill paid from the account
 	Rent      ledger.CategoryID
-	Cash      ledger.CategoryID // cash withdrawn from the account
-	Target    float64           // the balance the account is topped up to
-	Tolerance float64           // how far a cycle may land from the estimate
+	Cash      []ledger.CategoryID // the categories of cash withdrawn from the account
+	Target    float64             // the balance the account is topped up to
+	Tolerance float64             // how far a cycle may land from the estimate
 }
 
 // Cycle is an income cycle's check. A cycle runs from just after one card bill through the
@@ -76,7 +76,7 @@ func (in Income) Cycles(txs []ledger.Transaction, category func(ledger.Transacti
 				if first >= 0 {
 					c.Expected -= t.Amount
 				}
-			case first >= 0 && (cat == in.Bill || cat == in.Cash):
+			case first >= 0 && (cat == in.Bill || slices.Contains(in.Cash, cat)):
 				c.Expected -= t.Amount
 			}
 		}

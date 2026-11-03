@@ -7,7 +7,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
-var in = Income{Account: "Checking", Category: 1, Bill: 2, Rent: 3, Cash: 4, Target: 3000, Tolerance: 1500}
+var in = Income{Account: "Checking", Category: 1, Bill: 2, Rent: 3, Cash: []ledger.CategoryID{4}, Target: 3000, Tolerance: 1500}
 
 func btx(id int64, d string, amount, closing float64, cat ledger.CategoryID) ledger.Transaction {
 	return ledger.Transaction{ID: id, Date: date(d), Amount: amount, ClosingBalance: closing, Payee: "P", Account: ledger.Account{Name: "Checking"}, State: ledger.State{Category: cat}}
@@ -230,5 +230,16 @@ func TestCyclesCountCashAfterTheFirstCredit(t *testing.T) {
 	c := cycle(t, in.Cycles(txs, current), "2026-03-01")
 	if !near(c.Expected, 8200) || !near(c.Actual, 8200) {
 		t.Errorf("cycle = %+v, want 8200 expected: the cash before the first credit is in the balance", c)
+	}
+}
+
+func TestEveryCashCategoryCountsAsCash(t *testing.T) {
+	both := in
+	both.Cash = []ledger.CategoryID{4, 7}
+	for _, cat := range []ledger.CategoryID{4, 7} {
+		txs := append(march(6000), btx(7, "2026-03-11", -100, 1700, cat))
+		if c := cycle(t, both.Cycles(txs, current), "2026-03-01"); !near(c.Expected, 7600) {
+			t.Errorf("withdrawal in category %d: expected %.2f, want 7600", cat, c.Expected)
+		}
 	}
 }

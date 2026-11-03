@@ -203,7 +203,7 @@ func TestSettingsResolvesTitles(t *testing.T) {
 		t.Errorf("settings = %+v", s)
 	}
 	in := s.Income
-	if in.Account != "Checking" || in.Category != 1 || in.Bill != 2 || in.Rent != 3 || in.Cash != 4 || in.Target != 3000 || in.Tolerance != 1500 {
+	if in.Account != "Checking" || in.Category != 1 || in.Bill != 2 || in.Rent != 3 || !slices.Equal(in.Cash, []ledger.CategoryID{4}) || in.Target != 3000 || in.Tolerance != 1500 {
 		t.Errorf("income = %+v", in)
 	}
 }
@@ -357,5 +357,22 @@ func TestTripPathsAreUnderHome(t *testing.T) {
 	}
 	if got := PlacedPath("/h"); got != "/h/.local/state/pocketsmith-categorizer/placed.json" {
 		t.Errorf("PlacedPath = %q", got)
+	}
+}
+
+func TestSettingsCountsBigCashAsCash(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full+attentionConfig+"\n[trips.big]\ncash = \"Trip Cash\"\n", 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.Settings(append(slices.Clone(cats), ledger.Category{ID: 5, Title: "Trip Cash"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.Income.Cash, []ledger.CategoryID{4, 5}) {
+		t.Errorf("cash = %v, want the income check's and Big Cash", s.Income.Cash)
+	}
+	if _, err := c.Settings(cats); err == nil {
+		t.Error("Settings accepted an unknown trips.big.cash title")
 	}
 }

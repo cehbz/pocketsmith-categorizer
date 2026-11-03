@@ -213,11 +213,19 @@ func (c Config) Settings(cats []ledger.Category) (attention.Settings, error) {
 		}
 		resolved[i] = id
 	}
+	cash := []ledger.CategoryID{resolved[3]}
+	if title := c.Trips.Big.Cash; title != "" {
+		id, ok := ids[title]
+		if !ok {
+			return attention.Settings{}, fmt.Errorf("config: trips.big.cash: no category %q", title)
+		}
+		cash = append(cash, id)
+	}
 	return attention.Settings{
 		Start: start,
 		Size:  attention.Size{Absolute: a.Large, SD: a.SD},
 		Income: attention.Income{Account: in.Account, Category: resolved[0], Bill: resolved[1], Rent: resolved[2],
-			Cash: resolved[3], Target: in.Target, Tolerance: in.Tolerance},
+			Cash: cash, Target: in.Target, Tolerance: in.Tolerance},
 	}, nil
 }
 
