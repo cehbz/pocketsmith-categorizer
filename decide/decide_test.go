@@ -245,3 +245,36 @@ func TestFlagsAreInIDOrder(t *testing.T) {
 		t.Errorf("flags = %+v", p.Flags)
 	}
 }
+
+func TestAPlacementOverridesThePlannedDecision(t *testing.T) {
+	p := Plan{Changes: []categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 9, Labels: []string{"auto-rule"}}, Source: "r9"}}}
+	p.Place([]categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 7, Labels: []string{"auto-trip"}}, Source: "trips: t"}})
+	if len(p.Changes) != 1 || p.Changes[0].After.Category != 7 || p.Changes[0].Source != "trips: t" {
+		t.Errorf("changes = %+v, want the placement", p.Changes)
+	}
+}
+
+func TestAPlacementThatLeavesATransactionAsItIsDropsItsChange(t *testing.T) {
+	placed := ledger.State{Category: 7, Labels: []string{"auto-trip"}}
+	p := Plan{Changes: []categorize.Change{{Charge: 1, Before: placed, After: ledger.State{Category: 9, Labels: []string{"auto-rule"}}, Source: "r9"}}}
+	p.Place([]categorize.Change{{Charge: 1, Before: placed, After: placed, Source: "trips: t"}})
+	if len(p.Changes) != 0 {
+		t.Errorf("changes = %+v, want none", p.Changes)
+	}
+}
+
+func TestAnotherPlacementIsAChangeOfItsOwn(t *testing.T) {
+	var p Plan
+	p.Place([]categorize.Change{{Charge: 2, Before: ledger.State{Category: 3}, After: ledger.State{Category: 7, Labels: []string{"auto-trip"}}, Source: "trips: t"}})
+	if len(p.Changes) != 1 || p.Changes[0].Charge != 2 {
+		t.Errorf("changes = %+v, want the placement", p.Changes)
+	}
+}
+
+func TestAPlacedTransactionIsNoLongerUndecided(t *testing.T) {
+	p := Plan{Undecided: []ledger.Transaction{{ID: 1}, {ID: 2}}}
+	p.Place([]categorize.Change{{Charge: 1, Before: ledger.State{NeedsReview: true}, After: ledger.State{Category: 7, NeedsReview: true, Labels: []string{"auto-trip"}}}})
+	if len(p.Undecided) != 1 || p.Undecided[0].ID != 2 {
+		t.Errorf("undecided = %+v, want only 2", p.Undecided)
+	}
+}
