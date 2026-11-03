@@ -28,7 +28,7 @@ func TestMatchPairsTheSameCentsWithinTheWindow(t *testing.T) {
 	txs := []ledger.Transaction{ltx(1, "2026-03-10", -12.50, "CAFE", "Card"), ltx(2, "2026-03-10", 5, "CAFE REFUND", "Card")}
 	recs := []Record{rec("a", "2026-03-15", 12.50, "CAFE", "Cafe"), rec("b", "2026-03-08", -5, "CAFE", "Cafe")}
 	got := Match(txs, recs)
-	if got[1] != (Evidence{Merchant: "Cafe", Code: "5812", InStore: true}) || got[2].Merchant != "Cafe" {
+	if got[1] != (Details{Merchant: "Cafe", Code: "5812", InStore: true}) || got[2].Merchant != "Cafe" {
 		t.Errorf("Match = %+v, want both matched", got)
 	}
 }

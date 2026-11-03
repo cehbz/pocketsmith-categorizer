@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-var inferring = Settings{Kinds: Kinds{Codes: DefaultCodes()}, Places: []string{"HOME TOWN"}}
+var inferring = Settings{Kinds: Kinds{Codes: DefaultCodes()}, Home: Home{Places: []string{"HOME TOWN"}}}
 
 // store is an in-store charge from merchant with code.
 func store(id int64, d, merchant, code string) Transaction {
 	c := charge(id, d, -10, merchant)
-	c.Evidence.Code, c.Evidence.InStore = code, true
+	c.Details.Code, c.Details.InStore = code, true
 	return c
 }
 
@@ -26,7 +26,7 @@ func TestSignalDaysTwoApartAreOneLegThreeApartTwo(t *testing.T) {
 func TestOnlyNewInStoreMerchantsAndInStoreLodgingSignal(t *testing.T) {
 	online := charge(4, "2026-03-11", -10, "ONLINE SHOP")
 	hotelSeen := store(6, "2026-02-02", "HOTEL", "7011")
-	hotelSeen.Evidence.InStore = false
+	hotelSeen.Details.InStore = false
 	txs := []Transaction{
 		store(1, "2026-02-01", "SEEN", "5812"), store(2, "2026-03-10", "SEEN", "5812"),
 		store(3, "2026-02-15", "BEFORE START", "5812"),
@@ -85,7 +85,7 @@ func TestHomeActivityBetweenLegsSplitsThem(t *testing.T) {
 
 func TestAHomeCafeChargedOnALegSomeoneWasHomeForSplitsTheLegs(t *testing.T) {
 	s := inferring
-	s.Places = []string{"HOMETOWN"}
+	s.Home.Places = []string{"HOMETOWN"}
 	txs := []Transaction{
 		charge(1, "2026-02-01", -4, "CAFE"),
 		store(2, "2026-03-10", "A", "5812"), charge(3, "2026-03-11", -4, "CAFE"), charge(4, "2026-03-11", -2, "MART HOMETOWN"), store(5, "2026-03-12", "B", "5812"),
@@ -118,7 +118,7 @@ func TestAChainChargedAtHomeAndOnOneLegDoesntSplitTheTrip(t *testing.T) {
 
 func TestInStoreLodgingNamingAHomePlaceIsntASignal(t *testing.T) {
 	s := inferring
-	s.Places = []string{"HOMETOWN"}
+	s.Home.Places = []string{"HOMETOWN"}
 	txs := []Transaction{store(1, "2026-03-10", "HOTEL HOMETOWN", "7011"), store(2, "2026-03-11", "HOTEL HOMETOWN", "7011")}
 	if got := Legs(txs, s, date("2026-03-01")); len(got) != 0 {
 		t.Errorf("Legs = %+v, want none for a stay at a home-named hotel", got)

@@ -344,7 +344,7 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 			*f.dst = rs
 		}
 	}
-	return trips.Settings{Kinds: kinds, Places: tr.Places, Everywhere: tr.Everywhere, Start: start, CashAccount: c.Income.Account}, nil
+	return trips.Settings{Kinds: kinds, Home: trips.Home{Places: tr.Places}, Everywhere: tr.Everywhere, Start: start, CashAccount: c.Income.Account}, nil
 }
 
 // TripsPath is the trip list the user edits, under home.

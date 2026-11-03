@@ -30,8 +30,8 @@ type Card interface {
 	Records(ctx context.Context, from, to time.Time) ([]Record, error)
 }
 
-// Evidence is what a ledger transaction's record says about it.
-type Evidence struct {
+// Details is what a ledger transaction's record says about it.
+type Details struct {
 	Merchant string
 	Code     string
 	InStore  bool
@@ -42,10 +42,10 @@ const (
 	matchAfter  = 5 // days a record may be dated after it
 )
 
-// Match gives each ledger transaction on the records' accounts the evidence of the record it
+// Match gives each ledger transaction on the records' accounts the details of the record it
 // became: the same cents with the opposite sign, dated 2 days before to 5 days after it, the
 // most shared payee words, then the nearest date. Each record matches at most once.
-func Match(txs []ledger.Transaction, recs []Record) map[int64]Evidence {
+func Match(txs []ledger.Transaction, recs []Record) map[int64]Details {
 	type key struct {
 		account string
 		cents   int64
@@ -65,7 +65,7 @@ func Match(txs []ledger.Transaction, recs []Record) map[int64]Evidence {
 		return cmp.Compare(a.ID, b.ID)
 	})
 	used := map[int]bool{}
-	out := map[int64]Evidence{}
+	out := map[int64]Details{}
 	for _, t := range ordered {
 		best, bestWords, bestGap := -1, 0, 0
 		for _, i := range candidates[key{t.Account.Name, -cents(t.Amount)}] {
@@ -81,7 +81,7 @@ func Match(txs []ledger.Transaction, recs []Record) map[int64]Evidence {
 		if best >= 0 {
 			used[best] = true
 			r := recs[best]
-			out[t.ID] = Evidence{Merchant: r.Merchant, Code: r.Code, InStore: r.InStore}
+			out[t.ID] = Details{Merchant: r.Merchant, Code: r.Code, InStore: r.InStore}
 		}
 	}
 	return out

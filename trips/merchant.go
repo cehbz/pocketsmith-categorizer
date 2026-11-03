@@ -1,13 +1,5 @@
 package trips
 
-import (
-	"slices"
-	"strings"
-	"unicode"
-
-	"github.com/cehbz/pocketsmith-categorizer/internal/day"
-)
-
 // Class is where a merchant is charged.
 type Class int
 
@@ -15,12 +7,6 @@ const (
 	HomeMerchant       Class = iota + 1 // at home and on trips someone was home for, or named for a home place
 	EverywhereMerchant                  // at home and on trips nobody was home for: chains, online shops, Grab
 	TripMerchant                        // on trips only
-)
-
-const (
-	minRun      = 3  // fewest monthly charges that make a subscription
-	minInterval = 25 // days between a subscription's charges, at least
-	maxInterval = 35 // and at most
 )
 
 // Merchants classifies merchants by their charges' history against a trip list, in two
@@ -50,9 +36,8 @@ func legMerchants(txs []Transaction, legs List, s Settings) *Merchants {
 // newMerchants indexes the charges in txs against trips. With soleTrip, a merchant charged
 // outside every trip and on one trip shows someone home for that trip.
 func newMerchants(txs []Transaction, trips List, s Settings, soleTrip bool) *Merchants {
-	m := &Merchants{settings: s, outside: map[string]bool{}, away: map[string]bool{}, recurring: map[int64]bool{}}
+	m := &Merchants{settings: s, outside: map[string]bool{}, away: map[string]bool{}, recurring: recurringCharges(txs)}
 	var charges []Transaction
-	byMerchant := map[string][]Transaction{}
 	on := map[string]map[string]bool{} // merchant → the trips it was charged on
 	for _, t := range txs {
 		if !t.Charge() {
@@ -60,7 +45,6 @@ func newMerchants(txs []Transaction, trips List, s Settings, soleTrip bool) *Mer
 		}
 		name := t.Merchant()
 		charges = append(charges, t)
-		byMerchant[name] = append(byMerchant[name], t)
 		trip, ok := trips.At(t.Date)
 		if !ok {
 			m.outside[name] = true
@@ -70,9 +54,6 @@ func newMerchants(txs []Transaction, trips List, s Settings, soleTrip bool) *Mer
 			on[name] = map[string]bool{}
 		}
 		on[name][trip.Name] = true
-	}
-	for _, cs := range byMerchant {
-		m.markRecurring(cs)
 	}
 	attended := map[string]bool{} // trips someone was home for
 	for _, t := range charges {
@@ -95,7 +76,7 @@ func newMerchants(txs []Transaction, trips List, s Settings, soleTrip bool) *Mer
 // attended": a merchant not naming home is a home merchant only when every trip it was
 // charged on is attended, so it can't make a further trip attended.
 func (m *Merchants) showsHome(t Transaction, only bool) bool {
-	return !everywhere(t, m.settings.Everywhere) && !m.Recurring(t) && (named(t, m.settings.Places) || m.outside[t.Merchant()] && only)
+	return !everywhere(t, m.settings.Everywhere) && !m.Recurring(t) && (named(t, m.settings.Home) || m.outside[t.Merchant()] && only)
 }
 
 // Class is t's merchant's class: an everywhere merchant is one whatever its history; a
@@ -107,7 +88,7 @@ func (m *Merchants) Class(t Transaction) Class {
 	switch {
 	case everywhere(t, m.settings.Everywhere):
 		return EverywhereMerchant
-	case named(t, m.settings.Places) || m.outside[name] && !m.away[name]:
+	case named(t, m.settings.Home) || m.outside[name] && !m.away[name]:
 		return HomeMerchant
 	case m.outside[name]:
 		return EverywhereMerchant
@@ -122,59 +103,4 @@ func (m *Merchants) Recurring(t Transaction) bool { return m.recurring[t.ID] }
 // recurring.
 func (m *Merchants) HomeActivity(t Transaction) bool {
 	return t.Charge() && m.Class(t) == HomeMerchant && !m.Recurring(t)
-}
-
-// markRecurring marks the charges in runs of at least minRun, each the merchant's next charge
-// within closeShare of the one before and 25 to 35 days after it, so a foreign-currency
-// subscription billed in dollars chains while a merchant charged daily doesn't.
-func (m *Merchants) markRecurring(cs []Transaction) {
-	slices.SortFunc(cs, byDate)
-	next := make([]int, len(cs)) // the next charge near in amount, if it is 25 to 35 days later; -1 if none
-	for i := range cs {
-		next[i] = -1
-		for j := i + 1; j < len(cs); j++ {
-			if near(cs[j].Amount, cs[i].Amount) {
-				if gap := day.Between(cs[i].Date, cs[j].Date); gap >= minInterval && gap <= maxInterval {
-					next[i] = j
-				}
-				break
-			}
-		}
-	}
-	back, fwd := make([]int, len(cs)), make([]int, len(cs)) // run lengths ending and starting at each charge
-	for i := range cs {
-		back[i] = max(back[i], 1)
-		if next[i] >= 0 {
-			back[next[i]] = max(back[next[i]], back[i]+1)
-		}
-	}
-	for i := len(cs) - 1; i >= 0; i-- {
-		fwd[i] = 1
-		if next[i] >= 0 {
-			fwd[i] = fwd[next[i]] + 1
-		}
-	}
-	for i, c := range cs {
-		if back[i]+fwd[i]-1 >= minRun {
-			m.recurring[c.ID] = true
-		}
-	}
-}
-
-// named reports whether t's merchant or payee names a home place.
-func named(t Transaction, places []string) bool {
-	merchant, payee := t.Merchant(), strings.ToUpper(t.Payee)
-	return slices.ContainsFunc(places, func(place string) bool {
-		place = strings.ToUpper(place)
-		return strings.Contains(merchant, place) || strings.Contains(payee, place)
-	})
-}
-
-// everywhere reports whether t's merchant begins with one of prefixes as whole words.
-func everywhere(t Transaction, prefixes []string) bool {
-	merchant := t.Merchant()
-	return slices.ContainsFunc(prefixes, func(p string) bool {
-		rest, ok := strings.CutPrefix(merchant, strings.ToUpper(p))
-		return ok && (rest == "" || !unicode.IsLetter(rune(rest[0])) && !unicode.IsDigit(rune(rest[0])))
-	})
 }

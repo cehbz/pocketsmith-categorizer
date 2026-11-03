@@ -13,7 +13,7 @@ const legGap = 2 // most days between a leg's signal days
 // Settings are what inference and placing need besides the transactions.
 type Settings struct {
 	Kinds       Kinds
-	Places      []string  // home places, as named in merchant names and payees
+	Home        Home      // where the household lives
 	Everywhere  []string  // merchants that are always everywhere merchants (Grab), as word prefixes of the merchant
 	Start       time.Time // the attention start: trips ending before it are back-filled unflagged
 	CashAccount string    // the account cash is withdrawn from
@@ -62,11 +62,11 @@ func Legs(txs []Transaction, s Settings, from time.Time) []Leg {
 	}
 	signal := map[time.Time]bool{} // signal day → it has lodging
 	for _, t := range txs {
-		if !t.Charge() || !t.Evidence.InStore || t.Date.Before(from) {
+		if !t.Charge() || !t.Details.InStore || t.Date.Before(from) {
 			continue
 		}
-		lodging := s.Kinds.Of(t.Home.Category, t.Evidence.Code) == Lodging
-		if (lodging || first[t.Merchant()].Equal(t.Date)) && !named(t, s.Places) {
+		lodging := s.Kinds.Of(t.Home.Category, t.Details.Code) == Lodging
+		if (lodging || first[t.Merchant()].Equal(t.Date)) && !named(t, s.Home) {
 			signal[t.Date] = signal[t.Date] || lodging
 		}
 	}
@@ -90,5 +90,5 @@ func homeBetween(txs []Transaction, m *Merchants, a, b time.Time) bool {
 // IsCash reports whether t is a withdrawal or an ATM fee rebate: money of kind Cash on the
 // cash account.
 func (s Settings) IsCash(t Transaction) bool {
-	return s.CashAccount != "" && t.Account.Name == s.CashAccount && s.Kinds.Of(t.Home.Category, t.Evidence.Code) == Cash
+	return s.CashAccount != "" && t.Account.Name == s.CashAccount && s.Kinds.Of(t.Home.Category, t.Details.Code) == Cash
 }

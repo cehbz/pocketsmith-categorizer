@@ -11,12 +11,12 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
-// Transaction is a ledger transaction with its card evidence and the state the run's other
+// Transaction is a ledger transaction with its card details and the state the run's other
 // layers leave it in.
 type Transaction struct {
 	ledger.Transaction
-	Evidence Evidence     // zero when no record matched
-	Home     ledger.State // its state once the other layers have decided
+	Details Details      // zero when no record matched
+	Home    ledger.State // its state once the other layers have decided
 }
 
 // Charge reports whether t is spending: a debit that isn't a transfer.
@@ -26,21 +26,25 @@ func (t Transaction) Charge() bool { return t.Amount < 0 && !t.Transfer }
 func (t Transaction) Credit() bool { return t.Amount > 0 && !t.Transfer }
 
 // Merchant is who t paid or was paid by: the record's merchant name, else the key of the
-// payee's words with fewer than three digits, else the payee's key, else the payee. Skipping
-// the words with three or more keeps a terminal id or ticket number (`xx20000Q9C7777 ALPHA
-// PLAZA`) out of the key and names like 7-ELEVEN and 12GO in it.
+// payee without its numbers, else the payee's key, else the payee.
 func (t Transaction) Merchant() string {
-	if t.Evidence.Merchant != "" {
-		return strings.ToUpper(t.Evidence.Merchant)
+	if t.Details.Merchant != "" {
+		return strings.ToUpper(t.Details.Merchant)
 	}
-	words := slices.DeleteFunc(strings.Fields(t.Payee), func(w string) bool { return countDigits(w) >= 3 })
-	if k := learn.PayeeKey(strings.Join(words, " ")); k != "" {
+	if k := learn.PayeeKey(withoutNumbers(t.Payee)); k != "" {
 		return k
 	}
 	if k := learn.PayeeKey(t.Payee); k != "" {
 		return k
 	}
 	return t.Payee
+}
+
+// withoutNumbers is payee less its tokens with three or more digits, which keeps a terminal id
+// or ticket number (`xx20000Q9C7777 ALPHA PLAZA`) out of it and names like 7-ELEVEN and 12GO
+// in it.
+func withoutNumbers(payee string) string {
+	return strings.Join(slices.DeleteFunc(strings.Fields(payee), func(w string) bool { return countDigits(w) >= 3 }), " ")
 }
 
 // countDigits is the number of digits in w.

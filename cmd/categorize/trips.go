@@ -19,7 +19,7 @@ const (
 )
 
 // tripTransactions gives the trips layer the transactions on the card's accounts and the
-// cash account's withdrawals and rebates, each with its card evidence and the state the plan
+// cash account's withdrawals and rebates, each with its card details and the state the plan
 // leaves it in.
 func tripTransactions(txs []ledger.Transaction, recs []trips.Record, plan decide.Plan, cards []string, s trips.Settings) []trips.Transaction {
 	home := map[int64]ledger.State{}
@@ -29,14 +29,14 @@ func tripTransactions(txs []ledger.Transaction, recs []trips.Record, plan decide
 	for _, c := range plan.Corrections {
 		home[c.Charge] = c.After
 	}
-	evidence := trips.Match(txs, recs) // only the records' accounts match
+	details := trips.Match(txs, recs) // only the records' accounts match
 	var out []trips.Transaction
 	for _, t := range txs {
 		h, ok := home[t.ID]
 		if !ok {
 			h = t.State
 		}
-		tt := trips.Transaction{Transaction: t, Evidence: evidence[t.ID], Home: h}
+		tt := trips.Transaction{Transaction: t, Details: details[t.ID], Home: h}
 		if slices.Contains(cards, t.Account.Name) || s.IsCash(tt) {
 			out = append(out, tt)
 		}

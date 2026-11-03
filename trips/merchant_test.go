@@ -9,12 +9,12 @@ import (
 
 // charge is a card charge whose record names merchant.
 func charge(id int64, d string, amount float64, merchant string) Transaction {
-	return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: amount, Payee: merchant + " 1234"}, Evidence: Evidence{Merchant: merchant}}
+	return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: amount, Payee: merchant + " 1234"}, Details: Details{Merchant: merchant}}
 }
 
 func TestTheMerchantIsTheRecordsNameElseThePayeeKey(t *testing.T) {
-	ticket := Transaction{Transaction: ledger.Transaction{Payee: "AIRLINE 7Z9XYZ"}, Evidence: Evidence{Merchant: "Airline"}}
-	refund := Transaction{Transaction: ledger.Transaction{Payee: "AIRLINE"}, Evidence: Evidence{Merchant: "Airline"}}
+	ticket := Transaction{Transaction: ledger.Transaction{Payee: "AIRLINE 7Z9XYZ"}, Details: Details{Merchant: "Airline"}}
+	refund := Transaction{Transaction: ledger.Transaction{Payee: "AIRLINE"}, Details: Details{Merchant: "Airline"}}
 	if ticket.Merchant() != "AIRLINE" || refund.Merchant() != "AIRLINE" {
 		t.Errorf("merchants = %q, %q, want AIRLINE", ticket.Merchant(), refund.Merchant())
 	}
@@ -39,7 +39,7 @@ func TestMerchantClasses(t *testing.T) {
 		charge(3, "2026-02-01", -5, "CHAIN"), chain, charge(5, "2026-06-05", -5, "CHAIN"),
 		ryokan, named, charge(8, "2026-05-05", -5, "CAFE HOME TOWN"), bakery,
 	}
-	m := NewMerchants(txs, List{tripA, tripB}, Settings{Places: []string{"home town"}})
+	m := NewMerchants(txs, List{tripA, tripB}, Settings{Home: Home{Places: []string{"home town"}}})
 	for _, c := range []struct {
 		t    Transaction
 		want Class
@@ -49,30 +49,6 @@ func TestMerchantClasses(t *testing.T) {
 		}
 	}
 }
-
-func TestAMonthlyRunOfThreeWithin3PercentIsRecurring(t *testing.T) {
-	monthly := []Transaction{charge(1, "2026-01-15", -9.99, "STREAM"), charge(2, "2026-02-14", -9.99, "STREAM"), charge(3, "2026-03-16", -9.99, "STREAM")}
-	twice := []Transaction{charge(4, "2026-01-15", -5, "TWICE"), charge(5, "2026-02-14", -5, "TWICE")}
-	drifting := []Transaction{charge(9, "2026-01-15", -209.00, "HOSTING"), charge(10, "2026-02-14", -213.50, "HOSTING"), charge(11, "2026-03-16", -218.00, "HOSTING")}
-	changing := []Transaction{charge(6, "2026-01-15", -5, "CHANGING"), charge(7, "2026-02-14", -6, "CHANGING"), charge(8, "2026-03-16", -7, "CHANGING")}
-	var daily []Transaction
-	for i := range 70 {
-		daily = append(daily, charge(int64(100+i), day0.AddDate(0, 0, i).Format("2006-01-02"), -1.85, "RIDES"))
-	}
-	m := NewMerchants(append(append(append(append(monthly, drifting...), twice...), changing...), daily...), nil, Settings{})
-	for _, c := range append(monthly, drifting...) {
-		if !m.Recurring(c) {
-			t.Errorf("charge %d of a monthly run isn't recurring", c.ID)
-		}
-	}
-	for _, c := range append(append(twice, changing...), daily...) {
-		if m.Recurring(c) {
-			t.Errorf("charge %d (%s) is recurring", c.ID, c.Merchant())
-		}
-	}
-}
-
-var day0 = date("2026-01-01")
 
 func TestHomeActivityIsAHomeMerchantsChargeThatIsntRecurring(t *testing.T) {
 	local := charge(2, "2026-03-05", -5, "LOCAL")
@@ -108,7 +84,7 @@ func TestThePayeeKeySkipsTokensWithThreeOrMoreDigits(t *testing.T) {
 }
 
 // hometown names home in the two-pass tests; GRAB is always an everywhere merchant.
-var hometown = Settings{Places: []string{"HOMETOWN"}, Everywhere: []string{"GRAB"}}
+var hometown = Settings{Home: Home{Places: []string{"HOMETOWN"}}, Everywhere: []string{"GRAB"}}
 
 func TestACafeChargedOnlyOnTripsSomeoneWasHomeForStaysHome(t *testing.T) {
 	onA, onB := charge(2, "2026-03-05", -4, "CAFE"), charge(3, "2026-06-05", -4, "CAFE")
@@ -172,13 +148,13 @@ func TestAHomeNamedGrabChargeDoesntShowAnyoneHome(t *testing.T) {
 func TestAMerchantNamingAHomePlaceInItsRecordOrItsPayeeIsHomeInAnyCase(t *testing.T) {
 	// Charged on trips only, so only naming a place makes them home; the place is in lower case.
 	inPayee := func(id int64, d string) Transaction {
-		return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: -4, Payee: "SHOP Home Town 1234"}, Evidence: Evidence{Merchant: "Shop"}}
+		return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: -4, Payee: "SHOP Home Town 1234"}, Details: Details{Merchant: "Shop"}}
 	}
 	inRecord := func(id int64, d string) Transaction {
-		return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: -4, Payee: "Kiosk"}, Evidence: Evidence{Merchant: "Kiosk HOME TOWN"}}
+		return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: -4, Payee: "Kiosk"}, Details: Details{Merchant: "Kiosk HOME TOWN"}}
 	}
 	txs := []Transaction{inPayee(1, "2026-03-05"), inPayee(2, "2026-06-05"), inRecord(3, "2026-03-06"), inRecord(4, "2026-06-06")}
-	m := NewMerchants(txs, List{tripA, tripB}, Settings{Places: []string{"home town"}})
+	m := NewMerchants(txs, List{tripA, tripB}, Settings{Home: Home{Places: []string{"home town"}}})
 	for _, c := range txs {
 		if got := m.Class(c); got != HomeMerchant {
 			t.Errorf("%s (payee %q): class %v, want home", c.Merchant(), c.Payee, got)

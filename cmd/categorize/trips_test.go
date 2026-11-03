@@ -38,8 +38,8 @@ func TestTripTransactionsKeepTheCardsAndTheWithdrawalsWithTheirPlannedStates(t *
 	if got[0].Home.Category != 9 || got[1].Home.Category != 5 || got[2].Home.Category != 4 {
 		t.Errorf("home categories = %d, %d, %d; want 9, 5, 4", got[0].Home.Category, got[1].Home.Category, got[2].Home.Category)
 	}
-	if got[0].Evidence.Merchant != "Cafe" || got[1].Evidence != (trips.Evidence{}) {
-		t.Errorf("evidence = %+v, %+v", got[0].Evidence, got[1].Evidence)
+	if got[0].Details.Merchant != "Cafe" || got[1].Details != (trips.Details{}) {
+		t.Errorf("details = %+v, %+v", got[0].Details, got[1].Details)
 	}
 }
 
@@ -115,8 +115,8 @@ func TestInferTripsReadsTheCardFromJustBeforeTheLedgerRead(t *testing.T) {
 	if !card.from.Equal(mustParse("2025-12-30")) || !card.to.Equal(s.today) {
 		t.Errorf("records read %v..%v; want 2025-12-30..2026-11-03", card.from, card.to)
 	}
-	if len(got) != 1 || got[0].Evidence.Merchant != "Cafe" {
-		t.Errorf("trip transactions = %+v; want the card's charge with its evidence", got)
+	if len(got) != 1 || got[0].Details.Merchant != "Cafe" {
+		t.Errorf("trip transactions = %+v; want the card's charge with its details", got)
 	}
 }
 
