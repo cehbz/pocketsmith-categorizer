@@ -316,6 +316,22 @@ func TestTripSettingsReadsTheCodes(t *testing.T) {
 	}
 }
 
+func TestAPartialCodesTableKeepsTheDefaultsForTheKindsItOmits(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full+tripsConfig+"\n[trips.codes]\nfood = [\"5812\"]\n", 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.TripSettings(tripCats, tripStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := trips.DefaultCodes()
+	want.Food = []trips.Range{{Lo: 5812, Hi: 5812}}
+	if !reflect.DeepEqual(s.Kinds.Codes, want) {
+		t.Errorf("codes = %+v, want the defaults with food 5812", s.Kinds.Codes)
+	}
+}
+
 func TestTripSettingsNamesWhatIsMissing(t *testing.T) {
 	c, err := Load(write(t, "config.toml", full, 0o600))
 	if err != nil {

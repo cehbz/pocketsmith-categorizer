@@ -9,6 +9,7 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 var change = categorize.Change{
@@ -261,15 +262,20 @@ func TestOriginsSkipsUndoneTripChanges(t *testing.T) {
 
 func TestSaveTripsAndTripsRoundTrip(t *testing.T) {
 	s := Store{Dir: filepath.Join(t.TempDir(), "journal")}
-	if err := s.SaveTrips("RUN", []string{"a", "b"}); err != nil {
+	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
+	before := trips.Trip{Name: "b", From: day(1), To: day(3)}
+	after := before
+	after.To = day(5)
+	listing := trips.Listing{Added: []trips.Trip{{Name: "a", From: day(10), To: day(12), VisaRun: true}}, Extended: []trips.Extension{{Before: before, After: after}}}
+	if err := s.SaveTrips("RUN", listing); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Trips("RUN")
-	if err != nil || !reflect.DeepEqual(got, []string{"a", "b"}) {
-		t.Errorf("Trips = %v, %v; want a, b", got, err)
+	if err != nil || !reflect.DeepEqual(got, listing) {
+		t.Errorf("Trips = %+v, %v; want %+v", got, err, listing)
 	}
-	if got, err := s.Trips("OTHER"); err != nil || got != nil {
-		t.Errorf("Trips of a run that added none = %v, %v", got, err)
+	if got, err := s.Trips("OTHER"); err != nil || !got.Empty() {
+		t.Errorf("Trips of a run that changed none = %+v, %v", got, err)
 	}
 	if _, err := s.Latest(); err == nil {
 		t.Error("Latest counted a trips file as a run")

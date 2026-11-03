@@ -15,6 +15,7 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 // Store keeps one JSON-lines file per run in Dir.
@@ -186,9 +187,9 @@ func (s Store) Origins(isTrip func(source string) bool) (map[int64]ledger.State,
 	return out, nil
 }
 
-// SaveTrips records the trips run id added to the trip list.
-func (s Store) SaveTrips(id string, names []string) error {
-	b, err := json.Marshal(names)
+// SaveTrips records what run id changed in the trip list.
+func (s Store) SaveTrips(id string, c trips.Listing) error {
+	b, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
@@ -198,20 +199,20 @@ func (s Store) SaveTrips(id string, names []string) error {
 	return os.WriteFile(filepath.Join(s.Dir, id+".trips.json"), b, 0o600)
 }
 
-// Trips returns the trips run id added; none when it added none.
-func (s Store) Trips(id string) ([]string, error) {
+// Trips returns what run id changed in the trip list; nothing when it changed nothing.
+func (s Store) Trips(id string) (trips.Listing, error) {
+	var c trips.Listing
 	b, err := os.ReadFile(filepath.Join(s.Dir, id+".trips.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return c, nil
 	}
 	if err != nil {
-		return nil, err
+		return c, err
 	}
-	var names []string
-	if err := json.Unmarshal(b, &names); err != nil {
-		return nil, fmt.Errorf("run %s trips: %w", id, err)
+	if err := json.Unmarshal(b, &c); err != nil {
+		return trips.Listing{}, fmt.Errorf("run %s trips: %w", id, err)
 	}
-	return names, nil
+	return c, nil
 }
 
 // UndoSource is the Source of an entry that undoes run runID.

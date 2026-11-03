@@ -115,3 +115,12 @@ func TestAChainChargedAtHomeAndOnOneLegDoesntSplitTheTrip(t *testing.T) {
 		t.Errorf("Infer = %+v, want one trip: a chain at home and on one leg shows nobody home", got)
 	}
 }
+
+func TestInStoreLodgingNamingAHomePlaceIsntASignal(t *testing.T) {
+	s := inferring
+	s.Places = []string{"HOMETOWN"}
+	txs := []Transaction{store(1, "2026-03-10", "HOTEL HOMETOWN", "7011"), store(2, "2026-03-11", "HOTEL HOMETOWN", "7011")}
+	if got := Legs(txs, s, date("2026-03-01")); len(got) != 0 {
+		t.Errorf("Legs = %+v, want none for a stay at a home-named hotel", got)
+	}
+}

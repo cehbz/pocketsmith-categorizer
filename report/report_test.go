@@ -88,10 +88,12 @@ func TestWriteUndo(t *testing.T) {
 
 func TestWriteUndoListsTheTripsRemoved(t *testing.T) {
 	var b strings.Builder
-	if err := WriteUndo(&b, UndoRun{RunID: "R2", Target: "R1", TripsRemoved: []string{"trip-a", "trip-b"}}); err != nil {
+	if err := WriteUndo(&b, UndoRun{RunID: "R2", Target: "R1", TripsRemoved: []string{"trip-a", "trip-b"}, TripsRestored: []string{"trip-c 2026-11-01..2026-11-03"}}); err != nil {
 		t.Fatal(err)
 	}
-	if want := "trips removed (2): trip-a, trip-b\n"; !strings.Contains(b.String(), want) {
-		t.Errorf("report lacks %q:\n%s", want, b.String())
+	for _, want := range []string{"trips removed (2): trip-a, trip-b\n", "trips restored (1): trip-c 2026-11-01..2026-11-03\n"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("report lacks %q:\n%s", want, b.String())
+		}
 	}
 }

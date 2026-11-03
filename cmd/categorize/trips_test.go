@@ -69,14 +69,16 @@ func (f *fakeTrips) Save(list trips.List, written []trips.Trip) error {
 	return nil
 }
 
-func TestDropTripsRemovesTheNamedTripsFromTheListAndTheRecord(t *testing.T) {
-	a, b := trips.Trip{Name: "a"}, trips.Trip{Name: "b"}
-	f := &fakeTrips{list: trips.List{a, b}, written: []trips.Trip{a, b}}
-	if err := dropTrips(f, []string{"a"}); err != nil {
+func TestUndoListingRemovesTheAddedTripsAndRestoresTheExtendedOnes(t *testing.T) {
+	a, b := trips.Trip{Name: "a"}, trips.Trip{Name: "b", From: mustParse("2026-11-01"), To: mustParse("2026-11-03")}
+	longer := b
+	longer.To = mustParse("2026-11-05")
+	f := &fakeTrips{list: trips.List{a, longer}, written: []trips.Trip{a, longer}}
+	if err := undoListing(f, trips.Listing{Added: []trips.Trip{a}, Extended: []trips.Extension{{Before: b, After: longer}}}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(f.list, trips.List{b}) || !reflect.DeepEqual(f.written, []trips.Trip{b}) {
-		t.Errorf("after dropTrips: list %v, written %v; want b in each", f.list, f.written)
+		t.Errorf("after undoListing: list %v, written %v; want b as before in each", f.list, f.written)
 	}
 }
 
@@ -122,12 +124,12 @@ func TestAFailedRunAddsNoTrips(t *testing.T) {
 	f := &fakeTrips{}
 	j := journal.Store{Dir: t.TempDir()}
 	added := []trips.Trip{{Name: "trip-a"}}
-	listed, err := listTrips(errors.New("write failed"), f, j, "run-1", trips.List(added), nil, added)
-	if err == nil || listed != nil || f.list != nil || f.written != nil {
+	listed, err := listTrips(errors.New("write failed"), f, j, "run-1", trips.List(added), nil, trips.Listing{Added: added})
+	if err == nil || !listed.Empty() || f.list != nil || f.written != nil {
 		t.Errorf("listed %v, err %v, list %v, written %v; want the run's error and no trips", listed, err, f.list, f.written)
 	}
-	if names, _ := j.Trips("run-1"); names != nil {
-		t.Errorf("journal names %v; want none", names)
+	if c, _ := j.Trips("run-1"); !c.Empty() {
+		t.Errorf("journal trips %+v; want none", c)
 	}
 }
 
@@ -138,25 +140,28 @@ func TestTripsUnrecordedInTheJournalAreNotListed(t *testing.T) {
 		t.Fatal(err)
 	}
 	added := []trips.Trip{{Name: "trip-a"}}
-	listed, err := listTrips(nil, f, journal.Store{Dir: notDir}, "run-1", trips.List(added), nil, added)
-	if err == nil || listed != nil || f.list != nil {
+	listed, err := listTrips(nil, f, journal.Store{Dir: notDir}, "run-1", trips.List(added), nil, trips.Listing{Added: added})
+	if err == nil || !listed.Empty() || f.list != nil {
 		t.Errorf("listed %v, err %v, list %v; want an error and the list unwritten, so undo can remove every trip listed", listed, err, f.list)
 	}
 }
 
 func TestASuccessfulRunListsAndJournalsItsTrips(t *testing.T) {
-	old := trips.Trip{Name: "trip-old"}
+	old := trips.Trip{Name: "trip-old", From: mustParse("2026-11-01"), To: mustParse("2026-11-03")}
+	longer := old
+	longer.To = mustParse("2026-11-05")
 	added := []trips.Trip{{Name: "trip-a"}}
+	c := trips.Listing{Added: added, Extended: []trips.Extension{{Before: old, After: longer}}}
 	f := &fakeTrips{}
 	j := journal.Store{Dir: t.TempDir()}
-	listed, err := listTrips(nil, f, j, "run-1", trips.List{old, added[0]}, []trips.Trip{old}, added)
-	if err != nil || !reflect.DeepEqual(listed, added) {
-		t.Fatalf("listed %v, err %v; want trip-a", listed, err)
+	listed, err := listTrips(nil, f, j, "run-1", trips.List{longer, added[0]}, []trips.Trip{old}, c)
+	if err != nil || !reflect.DeepEqual(listed, c) {
+		t.Fatalf("listed %+v, err %v; want trip-a added and trip-old extended", listed, err)
 	}
-	if !reflect.DeepEqual(f.list, trips.List{old, added[0]}) || !reflect.DeepEqual(f.written, []trips.Trip{old, added[0]}) {
+	if !reflect.DeepEqual(f.list, trips.List{longer, added[0]}) || !reflect.DeepEqual(f.written, []trips.Trip{longer, added[0]}) {
 		t.Errorf("list %v, written %v", f.list, f.written)
 	}
-	if names, _ := j.Trips("run-1"); !reflect.DeepEqual(names, []string{"trip-a"}) {
-		t.Errorf("journal names %v; want trip-a", names)
+	if got, _ := j.Trips("run-1"); !reflect.DeepEqual(got, c) {
+		t.Errorf("journal trips %+v; want %+v", got, c)
 	}
 }

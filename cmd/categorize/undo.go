@@ -19,6 +19,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/pocketsmith"
 	"github.com/cehbz/pocketsmith-categorizer/report"
 	"github.com/cehbz/pocketsmith-categorizer/tripfile"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 func undoCmd(ctx context.Context, args []string, out io.Writer) error {
@@ -87,17 +88,22 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 	forget(seen, reverted)
 	forgetPlacements(placed, reverted)
-	var removed []string
+	var undone trips.Listing
 	if applyErr == nil {
-		names, err := store.Trips(target)
+		c, err := store.Trips(target)
 		if err == nil {
-			err = dropTrips(tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)}, names)
+			err = undoListing(tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)}, c)
 		}
 		if applyErr = err; err == nil {
-			removed = names
+			undone = c
 		}
 	}
-	err = report.WriteUndo(out, report.UndoRun{RunID: runID, Target: target, Changes: changes, Applied: applied, Skipped: skipped, Unchanged: unchanged, TripsRemoved: removed})
+	var restored []string
+	for _, e := range undone.Extended {
+		restored = append(restored, e.Before.Version())
+	}
+	err = report.WriteUndo(out, report.UndoRun{RunID: runID, Target: target, Changes: changes, Applied: applied, Skipped: skipped, Unchanged: unchanged,
+		TripsRemoved: trips.Names(undone.Added), TripsRestored: restored})
 	return errors.Join(applyErr, err, seen.Save(), placed.Save())
 }
 

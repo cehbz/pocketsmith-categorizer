@@ -80,16 +80,18 @@ func forgetPlacements(placed *memo.Memo, reverted []ledger.Charge) {
 	}
 }
 
-// dropTrips removes the named trips from the list and from the record of trips written.
-func dropTrips(store trips.Store, names []string) error {
-	if len(names) == 0 {
+// undoListing reverses what a run changed in the trip list, in the list and the record of
+// trips written.
+func undoListing(store trips.Store, c trips.Listing) error {
+	if c.Empty() {
 		return nil
 	}
 	list, written, err := store.Load()
 	if err != nil {
 		return err
 	}
-	return store.Save(trips.Without(list, names), trips.Without(written, names))
+	list, written = c.Undo(list, written)
+	return store.Save(list, written)
 }
 
 // inferTrips reads the card's records for txs, the ledger read from from, and returns the
@@ -105,18 +107,19 @@ func inferTrips(ctx context.Context, s *session, txs []ledger.Transaction, plan 
 	return card, trips.Infer(card, s.trips, from.AddDate(0, 0, inferWarmup)), nil
 }
 
-// listTrips lists the trips a run added once every write of the run landed: it names them in
-// the run's journal first, so undo can remove every trip listed, then writes the list and
-// the record of trips written. It returns the trips listed and the run's error.
-func listTrips(applyErr error, store trips.Store, j journal.Store, runID string, list trips.List, written, added []trips.Trip) ([]trips.Trip, error) {
-	if applyErr != nil || len(added) == 0 {
-		return nil, applyErr
+// listTrips writes what a run changed in the trip list once every write of the run landed:
+// it records the change in the run's journal first, so undo can reverse every change listed,
+// then writes the list and the record of trips written. It returns what it listed and the
+// run's error.
+func listTrips(applyErr error, store trips.Store, j journal.Store, runID string, list trips.List, written []trips.Trip, c trips.Listing) (trips.Listing, error) {
+	if applyErr != nil || c.Empty() {
+		return trips.Listing{}, applyErr
 	}
-	if err := j.SaveTrips(runID, trips.Names(added)); err != nil {
-		return nil, err
+	if err := j.SaveTrips(runID, c); err != nil {
+		return trips.Listing{}, err
 	}
-	if err := store.Save(list, append(slices.Clone(written), added...)); err != nil {
-		return nil, err
+	if err := store.Save(list, c.Record(written)); err != nil {
+		return trips.Listing{}, err
 	}
-	return added, nil
+	return c, nil
 }

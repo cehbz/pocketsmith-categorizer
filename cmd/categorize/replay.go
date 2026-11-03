@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/report"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 func replayCmd(ctx context.Context, args []string, out io.Writer) error {
@@ -35,7 +38,7 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	from := s.today.AddDate(0, 0, -*days)
-	all, err := s.ledger.Transactions(ctx, from.AddDate(0, 0, -365), s.today, false)
+	all, err := s.ledger.Transactions(ctx, from.AddDate(0, 0, -replayLead), s.today, false)
 	if err != nil {
 		return err
 	}
@@ -45,7 +48,7 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 			txs = append(txs, t)
 		}
 	}
-	_, inferred, err := inferTrips(ctx, s, txs, decide.Plan{}, from)
+	inferred, err := replayTrips(ctx, s, all, from)
 	if err != nil {
 		return err
 	}
@@ -62,4 +65,14 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 	tally := attention.Replay(all, from, s.today, s.attention, decideRule)
 	return report.WriteReplay(out, report.Replay{From: from, To: s.today, Users: users, Stats: s.rules.Replay(txs), Titles: s.titles,
 		Attention: &tally, Tolerance: s.attention.Income.Tolerance, Trips: inferred})
+}
+
+// replayLead is the days of history replay reads before the period.
+const replayLead = 365
+
+// replayTrips is the trips inference finds ending in the period from from, inferring over
+// all, read from replayLead days before it, so its warm-up ends before the period starts.
+func replayTrips(ctx context.Context, s *session, all []ledger.Transaction, from time.Time) ([]trips.Trip, error) {
+	_, inferred, err := inferTrips(ctx, s, all, decide.Plan{}, from.AddDate(0, 0, -replayLead))
+	return slices.DeleteFunc(inferred, func(t trips.Trip) bool { return t.To.Before(from) }), err
 }

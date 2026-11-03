@@ -334,6 +334,9 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 			dst *[]trips.Range
 			src []string
 		}{{&kinds.Codes.Transport, cs.Transport}, {&kinds.Codes.Lodging, cs.Lodging}, {&kinds.Codes.Food, cs.Food}, {&kinds.Codes.Booking, cs.Booking}} {
+			if f.src == nil {
+				continue // omitted: the default stands
+			}
 			rs, err := trips.ParseRanges(f.src)
 			if err != nil {
 				return trips.Settings{}, fmt.Errorf("config: trips.codes: %w", err)

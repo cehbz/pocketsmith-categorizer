@@ -49,19 +49,32 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	shown, err := memo.Load(config.MemoPath(home))
-	if err != nil {
-		return err
+	r := runner{journal: journal.Store{Dir: journalDir}, trips: tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)},
+		lookback: *lookback, history: *history}
+	for _, m := range []struct {
+		dst  **memo.Memo
+		path string
+	}{{&r.shown, config.MemoPath(home)}, {&r.judged, config.JudgedPath(home)}, {&r.placed, config.PlacedPath(home)}} {
+		if *m.dst, err = memo.Load(m.path); err != nil {
+			return err
+		}
 	}
-	judged, err := memo.Load(config.JudgedPath(home))
-	if err != nil {
-		return err
-	}
-	placed, err := memo.Load(config.PlacedPath(home))
-	if err != nil {
-		return err
-	}
-	store := journal.Store{Dir: journalDir}
+	return r.run(ctx, s, out)
+}
+
+// runner is what a run keeps between runs: what it showed, judged and placed, its journal and
+// the trip list.
+type runner struct {
+	shown, judged, placed *memo.Memo
+	journal               journal.Store
+	trips                 trips.Store
+	lookback, history     int // days back the categorizer re-decides its own work, and of history read
+}
+
+// run decides, places, flags and applies a run's changes, lists the trips it changed, and
+// reports.
+func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
+	shown, judged, placed, store, tripStore := r.shown, r.judged, r.placed, r.journal, r.trips
 	last, err := store.LastSet()
 	if err != nil {
 		return err
@@ -70,13 +83,12 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	tripStore := tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)}
 	list, written, err := tripStore.Load()
 	if err != nil {
 		return err
 	}
 
-	from := s.today.AddDate(0, 0, -max(*history, *lookback))
+	from := s.today.AddDate(0, 0, -max(r.history, r.lookback))
 	recent, err := s.ledger.Transactions(ctx, from, s.today, false)
 	if err != nil {
 		return err
@@ -91,13 +103,13 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		byID[t.ID] = t
 	}
 
-	start := s.today.AddDate(0, 0, -*lookback) // the categorizer changes nothing dated before it
+	start := s.today.AddDate(0, 0, -r.lookback) // the categorizer changes nothing dated before it
 	plan := decide.Make(txs, []decide.Layer{s.rules}, last, start)
 	card, inferred, err := inferTrips(ctx, s, txs, plan, from)
 	if err != nil {
 		return err
 	}
-	list, added := list.Add(inferred, written)
+	list, listing := list.Update(inferred, written)
 	pl := trips.Placer{Settings: s.trips, List: list, Written: written, Seen: placed.Seen, Origins: origins, Corrected: corrected(plan), From: start}.Place(card)
 	plan.Place(pl.Changes)
 	j := attend(txs, plan, s.attention, judged)
@@ -128,7 +140,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	changes := append(append(append([]categorize.Change{}, plan.Changes...), plan.Flags...), plan.Corrections...)
 	runID := "(none)"
 	applied, applyErr := 0, error(nil)
-	if len(changes) > 0 || len(added) > 0 {
+	if len(changes) > 0 || !listing.Empty() {
 		jr, err := store.Start(time.Now())
 		if err != nil {
 			return err
@@ -143,7 +155,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	flags := min(applied-decisions, len(plan.Flags))
 	corrections := plan.Corrections[:applied-decisions-flags]
 	unwritten := changes[applied:]
-	listed, applyErr := listTrips(applyErr, tripStore, store, runID, list, written, added)
+	listed, applyErr := listTrips(applyErr, tripStore, store, runID, list, written, listing)
 	var amendments []categorize.Change
 	for _, c := range corrections {
 		prev, ok := last[c.Charge]
@@ -160,7 +172,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		Titles: s.titles, Transactions: byID,
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
-		TripsAdded: listed, TripVersions: trips.Without(pl.Versions, trips.Names(added)),
+		TripsAdded: listed.Added, TripVersions: trips.Without(pl.Versions, trips.Names(listing.Added)),
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)

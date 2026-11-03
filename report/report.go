@@ -79,6 +79,7 @@ type UndoRun struct {
 	Skipped       []categorize.Change
 	Unchanged     int      // entries already in their before state
 	TripsRemoved  []string // the trips the undone run added, removed from the list
+	TripsRestored []string // the trips the undone run extended, back to these versions
 }
 
 // WriteUndo prints the undo report.
@@ -91,6 +92,9 @@ func WriteUndo(w io.Writer, r UndoRun) error {
 	}
 	if len(r.TripsRemoved) > 0 {
 		p.f("trips removed (%d): %s\n", len(r.TripsRemoved), strings.Join(r.TripsRemoved, ", "))
+	}
+	if len(r.TripsRestored) > 0 {
+		p.f("trips restored (%d): %s\n", len(r.TripsRestored), strings.Join(r.TripsRestored, ", "))
 	}
 	return p.err
 }

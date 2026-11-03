@@ -51,8 +51,8 @@ func Infer(txs []Transaction, s Settings, from time.Time) []Trip {
 }
 
 // Legs are the runs of signal days on or after from, no more than legGap days apart. A
-// signal day has an in-store charge from a merchant never charged before that day and not
-// named for a home place, or an in-store lodging charge.
+// signal day has an in-store charge, not from a merchant naming a home place, that is a
+// lodging charge or from a merchant never charged before that day.
 func Legs(txs []Transaction, s Settings, from time.Time) []Leg {
 	first := map[string]time.Time{}
 	for _, t := range txs {
@@ -66,7 +66,7 @@ func Legs(txs []Transaction, s Settings, from time.Time) []Leg {
 			continue
 		}
 		lodging := s.Kinds.Of(t.Home.Category, t.Evidence.Code) == Lodging
-		if lodging || first[t.Merchant()].Equal(t.Date) && !named(t, s.Places) {
+		if (lodging || first[t.Merchant()].Equal(t.Date)) && !named(t, s.Places) {
 			signal[t.Date] = signal[t.Date] || lodging
 		}
 	}

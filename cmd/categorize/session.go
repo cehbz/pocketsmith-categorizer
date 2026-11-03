@@ -10,6 +10,7 @@ import (
 	api "github.com/cehbz/pocketsmith"
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
+	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -19,9 +20,15 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
+// sessionLedger is the ledger a session reads transactions from and writes changes to.
+type sessionLedger interface {
+	categorize.Ledger
+	Transactions(ctx context.Context, first, last time.Time, needsReview bool) ([]ledger.Transaction, error)
+}
+
 // session is what every command needs: the ledger, its categories and rules, and today.
 type session struct {
-	ledger    *pocketsmith.Ledger
+	ledger    sessionLedger
 	titles    map[ledger.CategoryID]string
 	rules     rules.Rules
 	today     time.Time          // in the ledger's time zone, midnight UTC

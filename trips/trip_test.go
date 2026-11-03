@@ -28,15 +28,67 @@ func TestAtPicksTheFirstOfOverlappingTrips(t *testing.T) {
 	}
 }
 
-func TestAddAppendsTripsOverlappingNoListedOrWrittenTrip(t *testing.T) {
+func TestUpdateAppendsTripsOverlappingNoListedOrWrittenTrip(t *testing.T) {
 	listed := Trip{Name: "listed", From: date("2026-03-01"), To: date("2026-03-10")}
 	deleted := Trip{Name: "deleted", From: date("2026-05-01"), To: date("2026-05-05")}
 	x := Trip{Name: "x", From: date("2026-03-08"), To: date("2026-03-12")}
 	y := Trip{Name: "y", From: date("2026-05-04"), To: date("2026-05-06")}
 	z := Trip{Name: "z", From: date("2026-07-01"), To: date("2026-07-03")}
-	list, added := List{listed}.Add([]Trip{x, y, z}, []Trip{listed, deleted})
-	if !reflect.DeepEqual(list, List{listed, z}) || !reflect.DeepEqual(added, []Trip{z}) {
-		t.Errorf("Add = %v, %v; want the list with z, and z", list, added)
+	list, c := List{listed}.Update([]Trip{x, y, z}, []Trip{listed, deleted})
+	if !reflect.DeepEqual(list, List{listed, z}) || !reflect.DeepEqual(c, Listing{Added: []Trip{z}}) {
+		t.Errorf("Update = %v, %+v; want the list with z, and z added", list, c)
+	}
+}
+
+// inProgress is an inferred trip as a run on its third day wrote it.
+var inProgress = Trip{Name: "trip-2026-11-01", From: date("2026-11-01"), To: date("2026-11-03")}
+
+func TestUpdateExtendsAnUneditedTripInferredLongerFromTheSameDay(t *testing.T) {
+	longer := Trip{Name: "trip-2026-11-01", From: date("2026-11-01"), To: date("2026-11-05")}
+	list, c := List{inProgress}.Update([]Trip{longer}, []Trip{inProgress})
+	if !reflect.DeepEqual(list, List{longer}) || !reflect.DeepEqual(c, Listing{Extended: []Extension{{Before: inProgress, After: longer}}}) {
+		t.Fatalf("Update = %v, %+v; want the trip extended to 11-05", list, c)
+	}
+	if got := c.Record([]Trip{inProgress}); !reflect.DeepEqual(got, []Trip{longer}) {
+		t.Errorf("Record = %v, want the extended trip in place of the one written", got)
+	}
+	if l, w := c.Undo(list, []Trip{longer}); !reflect.DeepEqual(l, List{inProgress}) || !reflect.DeepEqual(w, []Trip{inProgress}) {
+		t.Errorf("Undo = %v, %v; want the trip back to 11-03 in each", l, w)
+	}
+}
+
+func TestUpdateLeavesEditedTripsAndExtensionsThatWouldOverlapAnotherTrip(t *testing.T) {
+	longer := Trip{Name: "trip-2026-11-01", From: date("2026-11-01"), To: date("2026-11-08")}
+	renamed, visaRun, shorter := inProgress, inProgress, inProgress
+	renamed.Name = "trip-2026-11-farcity"
+	visaRun.VisaRun = true
+	shorter.To = date("2026-11-02")
+	for name, c := range map[string]struct {
+		list    List
+		written []Trip
+	}{
+		"renamed":         {List{renamed}, []Trip{inProgress}},
+		"visa run set":    {List{visaRun}, []Trip{inProgress}},
+		"dates edited":    {List{shorter}, []Trip{inProgress}},
+		"never written":   {List{inProgress}, nil},
+		"listed overlap":  {List{inProgress, {Name: "next", From: date("2026-11-07"), To: date("2026-11-09")}}, []Trip{inProgress}},
+		"deleted overlap": {List{inProgress}, []Trip{inProgress, {Name: "gone", From: date("2026-11-08"), To: date("2026-11-09")}}},
+	} {
+		list, got := c.list.Update([]Trip{longer}, c.written)
+		if !reflect.DeepEqual(list, c.list) || !got.Empty() {
+			t.Errorf("%s: Update = %v, %+v; want the list unchanged", name, list, got)
+		}
+	}
+}
+
+func TestUndoLeavesAnExtendedTripTheUserEditedSince(t *testing.T) {
+	longer := inProgress
+	longer.To = date("2026-11-05")
+	edited := longer
+	edited.Name = "trip-2026-11-farcity"
+	c := Listing{Extended: []Extension{{Before: inProgress, After: longer}}}
+	if l, w := c.Undo(List{edited}, []Trip{longer}); !reflect.DeepEqual(l, List{edited}) || !reflect.DeepEqual(w, []Trip{inProgress}) {
+		t.Errorf("Undo = %v, %v; want the user's edit kept and the record restored", l, w)
 	}
 }
 

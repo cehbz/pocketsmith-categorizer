@@ -48,20 +48,85 @@ func (l List) Named(name string) bool {
 	return slices.ContainsFunc(l, func(t Trip) bool { return t.Name == name })
 }
 
-// Add appends the inferred trips that overlap no trip in l and none ever written, and
-// returns the list and the trips it added.
-func (l List) Add(inferred, written []Trip) (List, []Trip) {
+// Same reports whether t and o are the same trip: name, dates and visa run.
+func (t Trip) Same(o Trip) bool {
+	return t.Name == o.Name && t.From.Equal(o.From) && t.To.Equal(o.To) && t.VisaRun == o.VisaRun
+}
+
+// Extension is a listed trip a run extended: as it was, and as extended.
+type Extension struct{ Before, After Trip }
+
+// Listing is what a run changed in the trip list: the trips it added and the trips it
+// extended.
+type Listing struct {
+	Added    []Trip
+	Extended []Extension
+}
+
+// Empty reports whether the run changed nothing in the list.
+func (c Listing) Empty() bool { return len(c.Added) == 0 && len(c.Extended) == 0 }
+
+// Update brings the inferred trips into l and returns the list and what changed. An inferred
+// trip starting on a listed trip's first day and ending later extends that trip, when the
+// user hasn't edited it (it is as written) and the longer trip overlaps no other listed or
+// written trip: a trip in progress grows run by run. Any other inferred trip overlapping no
+// trip in l and none ever written is appended.
+func (l List) Update(inferred, written []Trip) (List, Listing) {
 	out := slices.Clone(l)
-	var added []Trip
+	var c Listing
 	for _, t := range inferred {
+		if i := slices.IndexFunc(out, func(o Trip) bool {
+			return o.From.Equal(t.From) && t.To.After(o.To) && slices.ContainsFunc(written, o.Same)
+		}); i >= 0 {
+			longer := out[i]
+			longer.To = t.To
+			other := func(o Trip) bool { return !o.Same(out[i]) && o.Overlaps(longer) }
+			if !slices.ContainsFunc(out, other) && !slices.ContainsFunc(written, other) {
+				c.Extended = append(c.Extended, Extension{Before: out[i], After: longer})
+				out[i] = longer
+			}
+			continue
+		}
 		clash := func(o Trip) bool { return o.Overlaps(t) }
 		if slices.ContainsFunc(out, clash) || slices.ContainsFunc(written, clash) {
 			continue
 		}
 		out = append(out, t)
-		added = append(added, t)
+		c.Added = append(c.Added, t)
 	}
-	return out, added
+	return out, c
+}
+
+// Record is the record of trips written once the list is written with c: extended trips as
+// extended, added trips appended.
+func (c Listing) Record(written []Trip) []Trip {
+	out := slices.Clone(written)
+	for _, e := range c.Extended {
+		replace(out, e.Before, e.After)
+	}
+	return append(out, c.Added...)
+}
+
+// Undo reverses c in the list and the record of trips written: the trips it added are
+// removed, and the trips it extended go back to their dates where they are still as it left
+// them.
+func (c Listing) Undo(list List, written []Trip) (List, []Trip) {
+	names := Names(c.Added)
+	list, written = Without(list, names), Without(written, names)
+	for _, e := range c.Extended {
+		replace(list, e.After, e.Before)
+		replace(written, e.After, e.Before)
+	}
+	return list, written
+}
+
+// replace puts to in place of each trip in ts that is the same as from.
+func replace(ts []Trip, from, to Trip) {
+	for i, t := range ts {
+		if t.Same(from) {
+			ts[i] = to
+		}
+	}
 }
 
 // Without is ts less the trips called one of names.
