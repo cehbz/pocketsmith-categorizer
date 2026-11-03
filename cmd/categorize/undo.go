@@ -18,6 +18,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/memo"
 	"github.com/cehbz/pocketsmith-categorizer/pocketsmith"
 	"github.com/cehbz/pocketsmith-categorizer/report"
+	"github.com/cehbz/pocketsmith-categorizer/tripfile"
 )
 
 func undoCmd(ctx context.Context, args []string, out io.Writer) error {
@@ -54,6 +55,10 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	placed, err := memo.Load(config.PlacedPath(home))
+	if err != nil {
+		return err
+	}
 	ps := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: &http.Client{Timeout: 30 * time.Second}}}
 	read := &reading{Ledger: ps, charges: map[int64]ledger.Charge{}}
 	changes, skipped, unchanged, err := categorize.Undo(ctx, read, entries)
@@ -81,8 +86,19 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 		reverted = append(reverted, read.charges[c.Charge])
 	}
 	forget(seen, reverted)
-	err = report.WriteUndo(out, report.UndoRun{RunID: runID, Target: target, Changes: changes, Applied: applied, Skipped: skipped, Unchanged: unchanged})
-	return errors.Join(applyErr, err, seen.Save())
+	forgetPlacements(placed, reverted)
+	var removed []string
+	if applyErr == nil {
+		names, err := store.Trips(target)
+		if err == nil {
+			err = dropTrips(tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)}, names)
+		}
+		if applyErr = err; err == nil {
+			removed = names
+		}
+	}
+	err = report.WriteUndo(out, report.UndoRun{RunID: runID, Target: target, Changes: changes, Applied: applied, Skipped: skipped, Unchanged: unchanged, TripsRemoved: removed})
+	return errors.Join(applyErr, err, seen.Save(), placed.Save())
 }
 
 // reading is a ledger that keeps the charges read through it.

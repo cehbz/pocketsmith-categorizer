@@ -9,6 +9,7 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/config"
+	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
@@ -44,6 +45,10 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 			txs = append(txs, t)
 		}
 	}
+	_, inferred, err := inferTrips(ctx, s, txs, decide.Plan{}, from)
+	if err != nil {
+		return err
+	}
 	users := 0
 	for _, t := range txs {
 		if t.UserDecided() {
@@ -56,5 +61,5 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 	tally := attention.Replay(all, from, s.today, s.attention, decideRule)
 	return report.WriteReplay(out, report.Replay{From: from, To: s.today, Users: users, Stats: s.rules.Replay(txs), Titles: s.titles,
-		Attention: &tally, Tolerance: s.attention.Income.Tolerance})
+		Attention: &tally, Tolerance: s.attention.Income.Tolerance, Trips: inferred})
 }

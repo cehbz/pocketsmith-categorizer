@@ -17,6 +17,8 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/memo"
 	"github.com/cehbz/pocketsmith-categorizer/report"
+	"github.com/cehbz/pocketsmith-categorizer/tripfile"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 const (
@@ -55,13 +57,27 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	placed, err := memo.Load(config.PlacedPath(home))
+	if err != nil {
+		return err
+	}
 	store := journal.Store{Dir: journalDir}
 	last, err := store.LastSet()
 	if err != nil {
 		return err
 	}
+	origins, err := store.Origins(trips.IsSource)
+	if err != nil {
+		return err
+	}
+	tripStore := tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)}
+	list, written, err := tripStore.Load()
+	if err != nil {
+		return err
+	}
 
-	recent, err := s.ledger.Transactions(ctx, s.today.AddDate(0, 0, -max(*history, *lookback)), s.today, false)
+	from := s.today.AddDate(0, 0, -max(*history, *lookback))
+	recent, err := s.ledger.Transactions(ctx, from, s.today, false)
 	if err != nil {
 		return err
 	}
@@ -75,8 +91,19 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		byID[t.ID] = t
 	}
 
-	plan := decide.Make(txs, []decide.Layer{s.rules}, last, s.today.AddDate(0, 0, -*lookback))
+	start := s.today.AddDate(0, 0, -*lookback) // the categorizer changes nothing dated before it
+	plan := decide.Make(txs, []decide.Layer{s.rules}, last, start)
+	card, inferred, err := inferTrips(ctx, s, txs, plan, from)
+	if err != nil {
+		return err
+	}
+	list, added := list.Add(inferred, written)
+	pl := trips.Placer{Settings: s.trips, List: list, Written: written, Seen: placed.Seen, Origins: origins, Corrected: corrected(plan), From: start}.Place(card)
+	plan.Place(pl.Changes)
 	j := attend(txs, plan, s.attention, judged)
+	for id, rs := range pl.Reasons {
+		j.reasons[id] = append(j.reasons[id], rs...)
+	}
 	plan.Flag(byID, j.reasons)
 	inheritSources(plan.Flags, last)
 
@@ -101,7 +128,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	changes := append(append(append([]categorize.Change{}, plan.Changes...), plan.Flags...), plan.Corrections...)
 	runID := "(none)"
 	applied, applyErr := 0, error(nil)
-	if len(changes) > 0 {
+	if len(changes) > 0 || len(added) > 0 {
 		jr, err := store.Start(time.Now())
 		if err != nil {
 			return err
@@ -116,6 +143,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	flags := min(applied-decisions, len(plan.Flags))
 	corrections := plan.Corrections[:applied-decisions-flags]
 	unwritten := changes[applied:]
+	listed, applyErr := listTrips(applyErr, tripStore, store, runID, list, written, added)
 	var amendments []categorize.Change
 	for _, c := range corrections {
 		prev, ok := last[c.Charge]
@@ -132,6 +160,7 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		Titles: s.titles, Transactions: byID,
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
+		TripsAdded: listed, TripVersions: trips.Without(pl.Versions, trips.Names(added)),
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)
@@ -148,7 +177,8 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		shown.Add(p.ID())
 	}
 	remember(judged, j, unwritten)
-	return errors.Join(applyErr, shown.Save(), judged.Save())
+	rememberPlacements(placed, pl, unwritten)
+	return errors.Join(applyErr, shown.Save(), judged.Save(), placed.Save())
 }
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }

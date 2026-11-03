@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -48,6 +49,7 @@ type Placer struct {
 	Seen      func(key string) bool  // the placements already made
 	Origins   map[int64]ledger.State // each placed transaction's state before the trips layer changed it
 	Corrected map[int64]bool         // transactions the user recategorized since the categorizer set them
+	From      time.Time              // the placement start: transactions dated before it are history only
 }
 
 // Placing is what placing decided.
@@ -69,6 +71,8 @@ type placing struct {
 
 // Place places each charge in a trip's dates and each booking, then each refund. A
 // transaction the trips layer placed that no longer places returns to its origin.
+// Transactions dated before the placement start are history only: placing reads them but
+// leaves them as they are.
 func (p Placer) Place(txs []Transaction) Placing {
 	w := &placing{Placer: p, Placing: Placing{Reasons: map[int64][]string{}, Keys: map[int64]string{}},
 		merchants: NewMerchants(txs, p.List, p.Settings.Places), names: map[string]bool{}, final: map[int64]ledger.State{}}
@@ -84,6 +88,10 @@ func (p Placer) Place(txs []Transaction) Placing {
 	}
 	for _, t := range txs {
 		if p.Corrected[t.ID] || !t.Charge() {
+			continue
+		}
+		if t.Date.Before(p.From) {
+			w.hold(t)
 			continue
 		}
 		trip, in := p.List.At(t.Date)
@@ -188,6 +196,10 @@ func (w *placing) refunds(txs []Transaction) {
 		if w.Corrected[t.ID] || !t.Credit() {
 			continue
 		}
+		if t.Date.Before(w.From) {
+			w.hold(t)
+			continue
+		}
 		c, within, ok := follows(t, charges[t.Merchant()])
 		if w.Settings.IsCash(t) {
 			c, ok = latest(t, withdrawals[t.Account.Name])
@@ -286,6 +298,13 @@ func (w *placing) revert(t Transaction) bool {
 	}
 	w.set(t, after, revertSource)
 	return true
+}
+
+// hold leaves a transaction the trips layer placed as it is, whatever another layer decided.
+func (w *placing) hold(t Transaction) {
+	if t.State.HasLabel(Label) {
+		w.set(t, t.State, "")
+	}
 }
 
 func (w *placing) set(t Transaction, after ledger.State, source string) {

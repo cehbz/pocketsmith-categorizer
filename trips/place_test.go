@@ -342,3 +342,42 @@ func TestAPlacedChargeAndAClaimedBookingEmitAChangeEvenWhenNothingChangesSoNoOth
 		}
 	}
 }
+
+func TestAChargeBeforeThePlacementStartIsNeitherPlacedNorReverted(t *testing.T) {
+	onAbroad := ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}}
+	txs := []Transaction{
+		txn(1, "2026-10-10", -100, "HOTEL", "7011", ledger.State{Category: 7}), // in the trip, never placed
+		txn(2, "2026-10-02", -20, "CAFE", "5812", onAbroad),                    // placed, its trip's dates since edited
+		txn(3, "2026-10-03", 15, "BAR", "5813", onAbroad),                      // placed, with no charge before it
+	}
+	pl := placer(abroad)
+	pl.From = date("2026-10-15")
+	p := pl.Place(txs)
+	for _, id := range []int64{1, 2, 3} {
+		unchanged(t, p, id)
+		if k, ok := p.Keys[id]; ok {
+			t.Errorf("transaction %d: key %q; want none", id, k)
+		}
+	}
+}
+
+func TestARefundWhoseChargeIsBeforeThePlacementStartButInTheReadIsLeftAsItIs(t *testing.T) {
+	onAbroad := ledger.State{Category: 102, Labels: []string{Label, "trip-abroad"}}
+	charge := txn(1, "2026-10-02", -100, "HOTEL", "7011", onAbroad) // placed, its trip's dates since edited
+	refund := txn(2, "2026-10-20", 100, "HOTEL", "7011", onAbroad)
+	pl := placer(abroad)
+	pl.From = date("2026-10-15")
+	pl.Seen = seen(PlacedPrefix(2) + "refund 1")
+	p := pl.Place([]Transaction{charge, refund})
+	unchanged(t, p, 1)
+	unchanged(t, p, 2)
+}
+
+func TestAPlacedTransactionBeforeThePlacementStartIsHeldAgainstOtherLayers(t *testing.T) {
+	hotel := txn(1, "2026-10-10", -100, "HOTEL", "7011", ledger.State{Category: 102, NeedsReview: true, Labels: []string{Label, "trip-abroad"}})
+	hotel.Home = ledger.State{Category: 7, Labels: []string{"auto-rule"}}
+	pl := placer(abroad)
+	pl.From = date("2026-10-15")
+	p := pl.Place([]Transaction{hotel})
+	wantState(t, p, 1, hotel.State)
+}
