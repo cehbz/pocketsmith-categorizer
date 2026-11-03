@@ -85,3 +85,13 @@ func TestWriteUndo(t *testing.T) {
 		t.Errorf("report:\n%s\nwant:\n%s", b.String(), want)
 	}
 }
+
+func TestWriteUndoListsTheTripsRemoved(t *testing.T) {
+	var b strings.Builder
+	if err := WriteUndo(&b, UndoRun{RunID: "R2", Target: "R1", TripsRemoved: []string{"trip-a", "trip-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "trips removed (2): trip-a, trip-b\n"; !strings.Contains(b.String(), want) {
+		t.Errorf("report lacks %q:\n%s", want, b.String())
+	}
+}

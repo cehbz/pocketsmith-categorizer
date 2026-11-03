@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
@@ -76,7 +77,8 @@ type UndoRun struct {
 	Changes       []categorize.Change
 	Applied       int
 	Skipped       []categorize.Change
-	Unchanged     int // entries already in their before state
+	Unchanged     int      // entries already in their before state
+	TripsRemoved  []string // the trips the undone run added, removed from the list
 }
 
 // WriteUndo prints the undo report.
@@ -86,6 +88,9 @@ func WriteUndo(w io.Writer, r UndoRun) error {
 		r.RunID, r.Applied, len(r.Changes), r.Target, len(r.Skipped), r.Unchanged)
 	for _, c := range r.Skipped {
 		p.f("  charge %d: category changed since run %s, left as is\n", c.Charge, r.Target)
+	}
+	if len(r.TripsRemoved) > 0 {
+		p.f("trips removed (%d): %s\n", len(r.TripsRemoved), strings.Join(r.TripsRemoved, ", "))
 	}
 	return p.err
 }

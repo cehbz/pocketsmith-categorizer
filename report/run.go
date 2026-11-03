@@ -16,6 +16,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/rules"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 // Run is what a categorize run did and found.
@@ -38,6 +39,8 @@ type Run struct {
 	Trials         []learn.Trial
 	Titles         map[ledger.CategoryID]string
 	Transactions   map[int64]ledger.Transaction // by ID, to describe changes
+	TripsAdded     []trips.Trip                 // trips the run added to the list
+	TripVersions   []trips.Trip                 // listed trips placed under new names or dates
 }
 
 func title(titles map[ledger.CategoryID]string, id ledger.CategoryID) string {
@@ -61,6 +64,19 @@ func WriteRun(w io.Writer, r Run) error {
 	p.f("changed (%d):\n", r.Applied)
 	for _, c := range r.Changes[:r.Applied] {
 		p.f("  %s: %s -> %s (%s)\n", describe(r.Transactions[c.Charge]), title(r.Titles, c.Before.Category), title(r.Titles, c.After.Category), c.Source)
+	}
+	p.f("trips added (%d):\n", len(r.TripsAdded))
+	for _, t := range r.TripsAdded {
+		p.f("  %s\n", describeTrip(t))
+	}
+	p.f("trips with new names or dates (%d):\n", len(r.TripVersions))
+	for _, t := range r.TripVersions {
+		p.f("  %s\n", describeTrip(t))
+	}
+	perTrip := placedPerTrip(r.Changes[:r.Applied])
+	p.f("placed on trips (%d):\n", len(perTrip))
+	for _, name := range slices.Sorted(maps.Keys(perTrip)) {
+		p.f("  %s: %d\n", name, perTrip[name])
 	}
 	p.f("needing your attention (%d):\n", len(r.Reasons))
 	for _, id := range byDate(r.Reasons, r.Transactions) {
@@ -115,6 +131,7 @@ type Replay struct {
 	Titles    map[ledger.CategoryID]string
 	Attention *attention.Tally // what attention would have flagged; nil when not replayed
 	Tolerance float64          // income mismatch tolerance
+	Trips     []trips.Trip     // the trips inference finds over the period
 }
 
 // WriteReplay prints a replay's report.
@@ -131,6 +148,10 @@ func WriteReplay(w io.Writer, r Replay) error {
 		for _, t := range s.Disagree {
 			p.f("  %s: you chose %s, rule says %s\n", describe(t), title(r.Titles, t.State.Category), s.Rule.Category)
 		}
+	}
+	p.f("trips inferred (%d):\n", len(r.Trips))
+	for _, t := range r.Trips {
+		p.f("  %s\n", describeTrip(t))
 	}
 	if a := r.Attention; a != nil {
 		all, without := make([]int, len(a.Weeks)), make([]int, len(a.Weeks))
@@ -188,4 +209,24 @@ func weekly(counts []int) string {
 		total += c
 	}
 	return fmt.Sprintf("%.1f a week (median %d, max %d)", float64(total)/float64(len(counts)), sorted[len(sorted)/2], sorted[len(sorted)-1])
+}
+
+// describeTrip names a trip with its dates.
+func describeTrip(t trips.Trip) string {
+	s := fmt.Sprintf("%s %s..%s", t.Name, day.Format(t.From), day.Format(t.To))
+	if t.VisaRun {
+		s += " (visa run)"
+	}
+	return s
+}
+
+// placedPerTrip counts the trips layer's changes by the trip they name.
+func placedPerTrip(changes []categorize.Change) map[string]int {
+	out := map[string]int{}
+	for _, c := range changes {
+		if name, ok := trips.SourceTrip(c.Source); ok {
+			out[name]++
+		}
+	}
+	return out
 }

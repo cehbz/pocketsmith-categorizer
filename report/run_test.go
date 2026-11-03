@@ -12,6 +12,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/rules"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 var titles = map[ledger.CategoryID]string{3: "Phone", 5: "Food", 9: "Cash"}
@@ -150,5 +151,47 @@ func TestWriteReplayTalliesAttention(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func reportTrip(name string, visaRun bool) trips.Trip {
+	from, _ := day.Parse("2026-03-10")
+	to, _ := day.Parse("2026-03-14")
+	return trips.Trip{Name: name, From: from, To: to, VisaRun: visaRun}
+}
+
+func TestWriteRunListsTrips(t *testing.T) {
+	r := Run{RunID: "R", Applied: 3, Titles: titles, Transactions: map[int64]ledger.Transaction{},
+		Changes: []categorize.Change{
+			{Charge: 1, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10"},
+			{Charge: 2, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10 refund of 1"},
+			{Charge: 3, After: ledger.State{Category: 5}, Source: "trips: trip-booking"},
+			{Charge: 4, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10"},
+		},
+		TripsAdded: []trips.Trip{reportTrip("trip-2026-03-10", true)}, TripVersions: []trips.Trip{reportTrip("trip-japan", false)},
+	}
+	var b strings.Builder
+	if err := WriteRun(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		"trips added (1):\n  trip-2026-03-10 2026-03-10..2026-03-14 (visa run)\n",
+		"trips with new names or dates (1):\n  trip-japan 2026-03-10..2026-03-14\n",
+		"placed on trips (2):\n  trip-2026-03-10: 2\n  trip-booking: 1\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteReplayListsInferredTrips(t *testing.T) {
+	var b strings.Builder
+	if err := WriteReplay(&b, Replay{Trips: []trips.Trip{reportTrip("trip-2026-03-10", false)}}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "trips inferred (1):\n  trip-2026-03-10 2026-03-10..2026-03-14\n"; !strings.Contains(b.String(), want) {
+		t.Errorf("report lacks %q:\n%s", want, b.String())
 	}
 }
