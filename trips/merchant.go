@@ -26,13 +26,6 @@ func NewMerchants(txs []Transaction, trips List, s Settings) *Merchants {
 	return newMerchants(txs, trips, s, true)
 }
 
-// legMerchants indexes the charges in txs against legs. Only a merchant naming a home place
-// shows someone home on a leg: the days between legs are outside every leg, so a chain charged
-// at home and on one leg would otherwise be a home merchant there and split the trip.
-func legMerchants(txs []Transaction, legs List, s Settings) *Merchants {
-	return newMerchants(txs, legs, s, false)
-}
-
 // newMerchants indexes the charges in txs against trips. With soleTrip, a merchant charged
 // outside every trip and on one trip shows someone home for that trip.
 func newMerchants(txs []Transaction, trips List, s Settings, soleTrip bool) *Merchants {

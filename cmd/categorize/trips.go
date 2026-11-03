@@ -96,15 +96,15 @@ func undoListing(store trips.Store, c trips.Listing) error {
 
 // inferTrips reads the card's records for txs, the ledger read from from, and returns the
 // transactions the trips layer sees once plan is applied and the trips inference finds in
-// them. Inference has no warm-up of its own: it counts merchants as new from inferWarmup
-// days into the read.
-func inferTrips(ctx context.Context, s *session, txs []ledger.Transaction, plan decide.Plan, from time.Time) ([]trips.Transaction, []trips.Trip, error) {
+// them against the listed trips. Inference has no warm-up of its own: it counts places as new
+// from inferWarmup days into the read.
+func inferTrips(ctx context.Context, s *session, txs []ledger.Transaction, plan decide.Plan, from time.Time, listed trips.List) ([]trips.Transaction, []trips.Inferred, error) {
 	recs, err := s.card.Records(ctx, from.AddDate(0, 0, -recordLead), s.today)
 	if err != nil {
 		return nil, nil, err
 	}
 	card := tripTransactions(txs, recs, plan, s.accounts, s.trips)
-	return card, trips.Infer(card, s.trips, from.AddDate(0, 0, inferWarmup)), nil
+	return card, trips.Infer(card, nil, listed, s.trips, from.AddDate(0, 0, inferWarmup)), nil
 }
 
 // listTrips writes what a run changed in the trip list once every write of the run landed:

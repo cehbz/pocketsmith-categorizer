@@ -14,6 +14,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/report"
+	"github.com/cehbz/pocketsmith-categorizer/tripfile"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
@@ -48,7 +49,11 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 			txs = append(txs, t)
 		}
 	}
-	inferred, err := replayTrips(ctx, s, all, from)
+	listed, _, err := tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)}.Load()
+	if err != nil {
+		return err
+	}
+	inferred, err := replayTrips(ctx, s, all, from, listed)
 	if err != nil {
 		return err
 	}
@@ -64,15 +69,16 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 	tally := attention.Replay(all, from, s.today, s.attention, decideRule)
 	return report.WriteReplay(out, report.Replay{From: from, To: s.today, Users: users, Stats: s.rules.Replay(txs), Titles: s.titles,
-		Attention: &tally, Tolerance: s.attention.Income.Tolerance, Trips: inferred})
+		Attention: &tally, Tolerance: s.attention.Income.Tolerance, Trips: trips.Trips(inferred)})
 }
 
 // replayLead is the days of history replay reads before the period.
 const replayLead = 365
 
-// replayTrips is the trips inference finds ending in the period from from, inferring over
-// all, read from replayLead days before it, so its warm-up ends before the period starts.
-func replayTrips(ctx context.Context, s *session, all []ledger.Transaction, from time.Time) ([]trips.Trip, error) {
-	_, inferred, err := inferTrips(ctx, s, all, decide.Plan{}, from.AddDate(0, 0, -replayLead))
-	return slices.DeleteFunc(inferred, func(t trips.Trip) bool { return t.To.Before(from) }), err
+// replayTrips is the trips inference finds against the listed trips ending in the period
+// from from, inferring over all, read from replayLead days before it, so its warm-up ends
+// before the period starts.
+func replayTrips(ctx context.Context, s *session, all []ledger.Transaction, from time.Time, listed trips.List) ([]trips.Inferred, error) {
+	_, inferred, err := inferTrips(ctx, s, all, decide.Plan{}, from.AddDate(0, 0, -replayLead), listed)
+	return slices.DeleteFunc(inferred, func(t trips.Inferred) bool { return t.To.Before(from) }), err
 }

@@ -105,11 +105,11 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 
 	start := s.today.AddDate(0, 0, -r.lookback) // the categorizer changes nothing dated before it
 	plan := decide.Make(txs, []decide.Layer{s.rules}, last, start)
-	card, inferred, err := inferTrips(ctx, s, txs, plan, from)
+	card, inferred, err := inferTrips(ctx, s, txs, plan, from, list)
 	if err != nil {
 		return err
 	}
-	list, listing := list.Update(inferred, written)
+	list, listing := list.Update(trips.Trips(inferred), written)
 	pl := trips.Placer{Settings: s.trips, List: list, Written: written, Seen: placed.Seen, Origins: origins, Corrected: corrected(plan), From: start}.Place(card)
 	plan.Place(pl.Changes)
 	j := attend(txs, plan, s.attention, judged)

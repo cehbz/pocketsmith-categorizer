@@ -3,124 +3,130 @@ package trips
 import (
 	"reflect"
 	"testing"
+
+	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 )
 
-var inferring = Settings{Kinds: Kinds{Codes: DefaultCodes()}, Home: Home{Places: []string{"HOME TOWN"}}}
-
-// store is an in-store charge from merchant with code.
-func store(id int64, d, merchant, code string) Transaction {
-	c := charge(id, d, -10, merchant)
-	c.Details.Code, c.Details.InStore = code, true
-	return c
+// cal is a piece of calendar evidence.
+func cal(d string, s Sign, what string) Evidence {
+	return Evidence{Day: date(d), Source: FromCalendar, Sign: s, What: what}
 }
 
-func TestSignalDaysTwoApartAreOneLegThreeApartTwo(t *testing.T) {
-	txs := []Transaction{store(1, "2026-03-10", "A", "5812"), store(2, "2026-03-12", "B", "5812"), store(3, "2026-03-15", "C", "5812")}
-	got := Legs(txs, inferring, date("2026-03-01"))
-	want := []Leg{{From: date("2026-03-10"), To: date("2026-03-12")}, {From: date("2026-03-15"), To: date("2026-03-15")}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Legs = %+v, want %+v", got, want)
+// stay is a calendar stay on each day from from to to.
+func stay(from, to, what string) []Evidence {
+	var out []Evidence
+	for d := date(from); !d.After(date(to)); d = d.AddDate(0, 0, 1) {
+		out = append(out, cal(day.Format(d), Stay, what))
 	}
+	return out
 }
 
-func TestOnlyNewInStoreMerchantsAndInStoreLodgingSignal(t *testing.T) {
-	online := charge(4, "2026-03-11", -10, "ONLINE SHOP")
-	hotelSeen := store(6, "2026-02-02", "HOTEL", "7011")
-	hotelSeen.Details.InStore = false
-	txs := []Transaction{
-		store(1, "2026-02-01", "SEEN", "5812"), store(2, "2026-03-10", "SEEN", "5812"),
-		store(3, "2026-02-15", "BEFORE START", "5812"),
-		online,
-		store(5, "2026-03-12", "CAFE HOME TOWN", "5812"),
-		hotelSeen, store(7, "2026-03-20", "HOTEL", "7011"),
-	}
-	got := Legs(txs, inferring, date("2026-03-01"))
-	want := []Leg{{From: date("2026-03-20"), To: date("2026-03-20"), Lodging: true}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Legs = %+v, want only the in-store lodging day", got)
+// infer infers the trips from txs and calendar for locals, with no trips listed.
+func infer(txs []Transaction, calendar ...Evidence) []Trip {
+	return Trips(Infer(txs, calendar, nil, locals, date("2025-01-01")))
+}
+
+func trip(from, to string) Trip { return Trip{Name: "trip-" + from, From: date(from), To: date(to)} }
+
+func wantTrips(t *testing.T, got []Trip, want ...Trip) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) && len(got)+len(want) > 0 {
+		t.Errorf("trips = %+v, want %+v", got, want)
 	}
 }
 
-func TestADayTripIsHomeButANightWithLodgingIsATrip(t *testing.T) {
-	if got := Infer([]Transaction{store(1, "2026-03-10", "NEARBY CAFE", "5812")}, inferring, date("2026-03-01")); len(got) != 0 {
-		t.Errorf("Infer = %+v, want no trip for a day trip", got)
+func TestACalendarFlightOrStayMakesATripThatKeepsItsEvidence(t *testing.T) {
+	flights := []Evidence{cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"), cal("2025-03-12", Flight, "FAR-BIG ZZ7"), cal("2025-03-15", FlightBack, "BIG-HMT ZZ8")}
+	got := Infer(nil, flights, nil, locals, date("2025-01-01"))
+	if len(got) != 1 || got[0].Trip != trip("2025-03-10", "2025-03-15") || !reflect.DeepEqual(got[0].Evidence, flights) {
+		t.Errorf("Infer = %+v, want trip-2025-03-10 to 03-15 with its three flights", got)
 	}
-	got := Infer([]Transaction{store(1, "2026-03-20", "HOTEL", "7011")}, inferring, date("2026-03-01"))
-	want := []Trip{{Name: "trip-2026-03-20", From: date("2026-03-20"), To: date("2026-03-20")}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Infer = %+v, want %+v", got, want)
+	wantTrips(t, infer(nil, stay("2025-04-01", "2025-04-03", "Stay at Inn Farcity")...), trip("2025-04-01", "2025-04-03"))
+}
+
+func TestCardEvidenceMakesATripOnlyAcrossANightWithNewPlacesAndLodgingOrGroundTransport(t *testing.T) {
+	for name, c := range map[string]struct {
+		txs  []Transaction
+		want []Trip
+	}{
+		"new places and lodging": {[]Transaction{inStore(1, "2025-05-10", -80, "INN FARCITY", "7011"), inStore(2, "2025-05-11", -9, "NOODLES FARCITY", "5812")},
+			[]Trip{trip("2025-05-10", "2025-05-11")}},
+		"new places and ground transport": {[]Transaction{inStore(1, "2025-05-10", -30, "RAIL FARCITY", "4112"), inStore(2, "2025-05-11", -9, "NOODLES FARCITY", "5812")},
+			[]Trip{trip("2025-05-10", "2025-05-11")}},
+		"a night's lodging":                  {[]Transaction{inStore(1, "2025-05-10", -80, "INN FARCITY", "7011")}, []Trip{trip("2025-05-10", "2025-05-10")}},
+		"new places only":                    {[]Transaction{inStore(1, "2025-05-10", -9, "CAFE FARCITY", "5812"), inStore(2, "2025-05-11", -9, "NOODLES FARCITY", "5812")}, nil},
+		"a single day with ground transport": {[]Transaction{inStore(1, "2025-05-10", -30, "RAIL FARCITY", "4112"), inStore(2, "2025-05-10", -9, "NOODLES FARCITY", "5812")}, nil},
+	} {
+		if got := infer(c.txs); !reflect.DeepEqual(got, c.want) && len(got)+len(c.want) > 0 {
+			t.Errorf("%s: trips = %+v, want %+v", name, got, c.want)
+		}
 	}
 }
 
-// twoLegs are legs on 03-10..03-12 and 03-30..03-31 with a chain store charged before, on the
-// first leg and between them.
-func twoLegs() []Transaction {
-	return []Transaction{
-		charge(1, "2026-02-01", -3, "SEVEN"),
-		store(2, "2026-03-10", "A", "5812"), charge(3, "2026-03-11", -3, "SEVEN"), store(4, "2026-03-12", "B", "5812"),
-		charge(5, "2026-03-20", -3, "SEVEN"),
-		store(6, "2026-03-30", "C", "5812"), store(7, "2026-03-31", "D", "5812"),
+func TestASingleDayWithoutAStayOrLodgingIsHomeAFlightOutAndBackIncluded(t *testing.T) {
+	wantTrips(t, infer([]Transaction{inStore(1, "2025-03-10", -9, "NOODLES FARCITY", "5812")},
+		cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"), cal("2025-03-10", FlightBack, "FAR-HMT ZZ102")))
+	wantTrips(t, infer(nil, cal("2025-04-10", Flight, "Flight to Farcity (ZZ 912)")))
+}
+
+func TestRunsThreeDaysApartJoinWithoutHomeActivityBetweenAndSplitWithIt(t *testing.T) {
+	calendar := append(stay("2025-03-10", "2025-03-11", "Stay at Inn Farcity"), stay("2025-03-14", "2025-03-15", "Stay at Lodge Bigcity")...)
+	wantTrips(t, infer(nil, calendar...), trip("2025-03-10", "2025-03-15"))
+	cafe := visits(1, "CAFE ONE", "2025-01-10", "2025-02-10", "2025-04-10", "2025-03-12") // settled, and charged between the runs
+	wantTrips(t, infer(cafe, calendar...), trip("2025-03-10", "2025-03-11"), trip("2025-03-14", "2025-03-15"))
+}
+
+func TestAReturnHomeEndsATrip(t *testing.T) {
+	txs := []Transaction{inStore(1, "2025-03-13", -80, "INN BIGCITY", "7011"), inStore(2, "2025-03-14", -9, "NOODLES BIGCITY", "5812")}
+	wantTrips(t, infer(txs, cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"), cal("2025-03-12", FlightBack, "FAR-HMT ZZ102")),
+		trip("2025-03-10", "2025-03-12"), trip("2025-03-13", "2025-03-14"))
+}
+
+func TestATripStartsOnItsFlightOutNotOnNewPlacesBeforeIt(t *testing.T) {
+	txs := []Transaction{inStore(1, "2025-03-09", -80, "INN NEWLY", "7011"), inStore(2, "2025-03-09", -9, "BAKERY NEWLY", "5812")}
+	calendar := append(stay("2025-03-10", "2025-03-12", "Stay at Inn Farcity"), cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"), cal("2025-03-13", FlightBack, "FAR-HMT ZZ102"))
+	got := infer(txs, calendar...)
+	if len(got) == 0 || got[len(got)-1] != trip("2025-03-10", "2025-03-13") {
+		t.Errorf("trips = %+v, want the last to be trip-2025-03-10 to 03-13", got)
 	}
 }
 
-func TestLegsWithoutHomeActivityBetweenThemAreOneTrip(t *testing.T) {
-	got := Infer(twoLegs(), inferring, date("2026-03-01"))
-	want := []Trip{{Name: "trip-2026-03-10", From: date("2026-03-10"), To: date("2026-03-31")}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Infer = %+v, want one trip", got)
+func TestCardEvidenceAfterTheLastCalendarEvidenceExtendsTheTrip(t *testing.T) {
+	txs := []Transaction{inStore(1, "2025-03-16", -9, "NOODLES BIGCITY", "5812"), inStore(2, "2025-03-17", -30, "RAIL BIGCITY", "4112")}
+	calendar := append(stay("2025-03-10", "2025-03-12", "Stay at Inn Farcity"), cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"))
+	wantTrips(t, infer(txs, calendar...), trip("2025-03-10", "2025-03-17"))
+}
+
+func TestEvidenceBeforeTheHomeStartMakesNoTrip(t *testing.T) {
+	txs := []Transaction{inStore(1, "2024-12-20", -80, "INN FARCITY", "7011"), inStore(2, "2024-12-21", -9, "NOODLES FARCITY", "5812")}
+	// Read from before the home start, so only the home start excludes the card's evidence.
+	wantTrips(t, Trips(Infer(txs, stay("2024-12-10", "2024-12-12", "Stay at Inn Farcity"), nil, locals, date("2024-12-01"))))
+}
+
+func TestAPlaceChargedOnTripsTheCalendarAloneShowsIsntSettledByThem(t *testing.T) {
+	// The ramen shop is charged in three months, each time on a trip only the calendar shows,
+	// and in the gap between the stays of a fourth: against the listed trips alone it would be
+	// settled, home activity, and split the fourth trip. The café at home between the trips
+	// keeps them apart.
+	var calendar []Evidence
+	for _, m := range []string{"02", "03", "04"} {
+		calendar = append(calendar, stay("2025-"+m+"-10", "2025-"+m+"-12", "Stay at Inn Farcity")...)
+	}
+	calendar = append(append(calendar, stay("2025-06-01", "2025-06-03", "Stay at Inn Farcity")...), stay("2025-06-10", "2025-06-12", "Stay at Lodge Farcity")...)
+	ramen := visits(1, "RAMEN FARCITY", "2025-02-11", "2025-03-11", "2025-04-11", "2025-06-07")
+	cafe := visits(10, "CAFE ONE", "2025-01-20", "2025-02-20", "2025-03-20", "2025-05-20")
+	got := infer(append(ramen, cafe...), calendar...)
+	if want := trip("2025-06-01", "2025-06-12"); len(got) != 4 || got[3] != want {
+		t.Errorf("trips = %+v; want four, the last %+v", got, want)
 	}
 }
 
-func TestHomeActivityBetweenLegsSplitsThem(t *testing.T) {
-	txs := append(twoLegs(), charge(8, "2026-02-03", -4, "LOCAL"), charge(9, "2026-03-21", -4, "LOCAL"))
-	got := Infer(txs, inferring, date("2026-03-01"))
-	want := []Trip{
-		{Name: "trip-2026-03-10", From: date("2026-03-10"), To: date("2026-03-12")},
-		{Name: "trip-2026-03-30", From: date("2026-03-30"), To: date("2026-03-31")},
+func TestTheSameFlightsInTheCalendarTwiceMakeOneTrip(t *testing.T) {
+	// Typed from the booking page and added from Gmail's confirmation.
+	calendar := []Evidence{
+		cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"), cal("2025-03-10", FlightOut, "ZZ 101 HMT-FAR"),
+		cal("2025-03-11", Flight, "Flight to Bigcity (ZZ 7)"),
+		cal("2025-03-14", FlightBack, "FAR-HMT ZZ102"), cal("2025-03-14", FlightBack, "ZZ 102 FAR-HMT"),
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Infer = %+v, want two trips", got)
-	}
-}
-
-func TestAHomeCafeChargedOnALegSomeoneWasHomeForSplitsTheLegs(t *testing.T) {
-	s := inferring
-	s.Home.Places = []string{"HOMETOWN"}
-	txs := []Transaction{
-		charge(1, "2026-02-01", -4, "CAFE"),
-		store(2, "2026-03-10", "A", "5812"), charge(3, "2026-03-11", -4, "CAFE"), charge(4, "2026-03-11", -2, "MART HOMETOWN"), store(5, "2026-03-12", "B", "5812"),
-		charge(6, "2026-03-20", -4, "CAFE"),
-		store(7, "2026-03-30", "C", "5812"), store(8, "2026-03-31", "D", "5812"),
-	}
-	got := Infer(txs, s, date("2026-03-01"))
-	want := []Trip{
-		{Name: "trip-2026-03-10", From: date("2026-03-10"), To: date("2026-03-12")},
-		{Name: "trip-2026-03-30", From: date("2026-03-30"), To: date("2026-03-31")},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Infer = %+v, want the cafe's charge at home to split the legs", got)
-	}
-}
-
-func TestAChainChargedAtHomeAndOnOneLegDoesntSplitTheTrip(t *testing.T) {
-	txs := []Transaction{
-		charge(1, "2026-02-01", -3, "CHAIN"),
-		store(2, "2026-03-10", "A", "5812"), store(3, "2026-03-12", "B", "5812"),
-		charge(4, "2026-03-20", -3, "CHAIN"),
-		store(5, "2026-03-30", "C", "5812"), charge(6, "2026-03-30", -3, "CHAIN"), store(7, "2026-03-31", "D", "5812"),
-	}
-	got := Infer(txs, inferring, date("2026-03-01"))
-	want := []Trip{{Name: "trip-2026-03-10", From: date("2026-03-10"), To: date("2026-03-31")}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Infer = %+v, want one trip: a chain at home and on one leg shows nobody home", got)
-	}
-}
-
-func TestInStoreLodgingNamingAHomePlaceIsntASignal(t *testing.T) {
-	s := inferring
-	s.Home.Places = []string{"HOMETOWN"}
-	txs := []Transaction{store(1, "2026-03-10", "HOTEL HOMETOWN", "7011"), store(2, "2026-03-11", "HOTEL HOMETOWN", "7011")}
-	if got := Legs(txs, s, date("2026-03-01")); len(got) != 0 {
-		t.Errorf("Legs = %+v, want none for a stay at a home-named hotel", got)
-	}
+	wantTrips(t, infer(nil, calendar...), trip("2025-03-10", "2025-03-14"))
 }

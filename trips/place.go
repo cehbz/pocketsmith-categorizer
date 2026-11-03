@@ -46,6 +46,7 @@ type Places struct {
 	home      Home
 	at        map[int64]Place // each place charge's place
 	charges   map[Place][]Transaction
+	first     map[Place]time.Time // the day each place was first charged
 	recurring map[int64]bool
 }
 
@@ -53,7 +54,7 @@ type Places struct {
 // code isn't digital is made at a place, and so is a withdrawal. Grab and recurring charges
 // are never at a place.
 func NewPlaces(txs []Transaction, s Settings) *Places {
-	p := &Places{home: s.Home, at: map[int64]Place{}, charges: map[Place][]Transaction{}, recurring: recurringCharges(txs)}
+	p := &Places{home: s.Home, at: map[int64]Place{}, charges: map[Place][]Transaction{}, first: map[Place]time.Time{}, recurring: recurringCharges(txs)}
 	for _, t := range txs {
 		if !t.Charge() || p.recurring[t.ID] || everywhere(t, s.Everywhere) {
 			continue
@@ -62,6 +63,9 @@ func NewPlaces(txs []Transaction, s Settings) *Places {
 			pl := placeOf(t.Payee)
 			p.at[t.ID] = pl
 			p.charges[pl] = append(p.charges[pl], t)
+			if f, ok := p.first[pl]; !ok || t.Date.Before(f) {
+				p.first[pl] = t.Date
+			}
 		}
 	}
 	return p

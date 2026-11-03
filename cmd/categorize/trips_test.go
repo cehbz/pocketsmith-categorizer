@@ -108,7 +108,7 @@ func TestInferTripsReadsTheCardFromJustBeforeTheLedgerRead(t *testing.T) {
 	card := &fakeCard{recs: []trips.Record{{Account: "Card", Date: mustParse("2026-03-11"), Amount: 12.5, Name: "CAFE", Merchant: "Cafe", Code: "5812"}}}
 	s := &session{today: mustParse("2026-11-03"), card: card, accounts: []string{"Card"}}
 	txs := []ledger.Transaction{{ID: 1, Date: mustParse("2026-03-10"), Amount: -12.5, Payee: "CAFE", Account: ledger.Account{Name: "Card"}}}
-	got, _, err := inferTrips(context.Background(), s, txs, decide.Plan{}, mustParse("2026-01-01"))
+	got, _, err := inferTrips(context.Background(), s, txs, decide.Plan{}, mustParse("2026-01-01"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

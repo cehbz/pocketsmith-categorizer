@@ -1,14 +1,14 @@
 package trips
 
 import (
-	"maps"
+	"cmp"
 	"slices"
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 )
 
-const legGap = 2 // most days between a leg's signal days
+const evidenceGap = 2 // most days between a run's evidence days
 
 // Settings are what inference and placing need besides the transactions.
 type Settings struct {
@@ -19,72 +19,114 @@ type Settings struct {
 	CashAccount string    // the account cash is withdrawn from
 }
 
-// Leg is a run of trip-signal days.
-type Leg struct {
-	From, To time.Time
-	Lodging  bool // it has an in-store lodging charge
+// Inferred is an inferred trip and the evidence it rests on.
+type Inferred struct {
+	Trip
+	Evidence []Evidence
 }
 
-// DayTrip reports whether the leg is a day out from home: no night away and no lodging.
-func (l Leg) DayTrip() bool { return l.From.Equal(l.To) && !l.Lodging }
-
-// Infer finds the trips in txs from signal days on or after from: the legs that aren't day
-// trips, consecutive ones joined when no home activity falls between them. A trip is named
-// for its first day.
-func Infer(txs []Transaction, s Settings, from time.Time) []Trip {
-	var away List
-	for _, l := range Legs(txs, s, from) {
-		if !l.DayTrip() {
-			away = append(away, Trip{Name: "trip-" + day.Format(l.From), From: l.From, To: l.To})
-		}
-	}
-	m := legMerchants(txs, away, s)
-	var out []Trip
-	for _, t := range away {
-		if n := len(out); n > 0 && !homeBetween(txs, m, out[n-1].To, t.From) {
-			out[n-1].To = t.To
-			continue
-		}
-		out = append(out, t)
+// Trips are the inferred trips.
+func Trips(inferred []Inferred) []Trip {
+	out := make([]Trip, len(inferred))
+	for i, t := range inferred {
+		out[i] = t.Trip
 	}
 	return out
 }
 
-// Legs are the runs of signal days on or after from, no more than legGap days apart. A
-// signal day has an in-store charge, not from a merchant naming a home place, that is a
-// lodging charge or from a merchant never charged before that day.
-func Legs(txs []Transaction, s Settings, from time.Time) []Leg {
-	first := map[string]time.Time{}
-	for _, t := range txs {
-		if f, ok := first[t.Merchant()]; t.Charge() && (!ok || t.Date.Before(f)) {
-			first[t.Merchant()] = t.Date
-		}
+// Infer finds the trips in the calendar's evidence and the card's, from the home start on;
+// the card's counts from from too, so a place is new only once the history before it is read.
+// Settled places and favourites are measured twice: against the listed trips, to find the
+// trips the calendar's evidence alone makes, and then against those and the listed trips, to
+// gather the card's evidence and infer the trips from all of it.
+func Infer(txs []Transaction, calendar []Evidence, listed List, s Settings, from time.Time) []Inferred {
+	calendar = slices.DeleteFunc(slices.Clone(calendar), func(e Evidence) bool { return e.Day.Before(s.Home.Since) })
+	places := NewPlaces(txs, s)
+	alone := assemble(calendar, places.Haunts(listed).homeDays())
+	haunts := places.Haunts(append(slices.Clone(listed), Trips(alone)...))
+	if s.Home.Since.After(from) {
+		from = s.Home.Since
 	}
-	signal := map[time.Time]bool{} // signal day → it has lodging
-	for _, t := range txs {
-		if !t.Charge() || !t.Details.InStore || t.Date.Before(from) {
-			continue
-		}
-		lodging := s.Kinds.Of(t.Home.Category, t.Details.Code) == Lodging
-		if (lodging || first[t.Merchant()].Equal(t.Date)) && !named(t, s.Home) {
-			signal[t.Date] = signal[t.Date] || lodging
-		}
-	}
-	var legs []Leg
-	for _, d := range slices.SortedFunc(maps.Keys(signal), time.Time.Compare) {
-		if n := len(legs); n > 0 && day.Between(legs[n-1].To, d) <= legGap {
-			legs[n-1].To = d
-			legs[n-1].Lodging = legs[n-1].Lodging || signal[d]
-			continue
-		}
-		legs = append(legs, Leg{From: d, To: d, Lodging: signal[d]})
-	}
-	return legs
+	return assemble(append(calendar, haunts.Evidence(from)...), haunts.homeDays())
 }
 
-// homeBetween reports whether home activity falls strictly between a and b.
-func homeBetween(txs []Transaction, m *Merchants, a, b time.Time) bool {
-	return slices.ContainsFunc(txs, func(t Transaction) bool { return t.Date.After(a) && t.Date.Before(b) && m.HomeActivity(t) })
+// run is evidence on days no more than evidenceGap apart, in order.
+type run []Evidence
+
+func (r run) first() time.Time { return r[0].Day }
+func (r run) last() time.Time  { return r[len(r)-1].Day }
+
+// has reports whether r holds evidence with one of signs.
+func (r run) has(signs ...Sign) bool {
+	return slices.ContainsFunc(r, func(e Evidence) bool { return slices.Contains(signs, e.Sign) })
+}
+
+// home reports whether r ends with a return home: nothing joins it.
+func (r run) home() bool { return r[len(r)-1].Sign == FlightBack }
+
+// away reports whether r is a trip: it has calendar evidence, or new or favourite places
+// with lodging or ground transport. A run on a single day without a stay or lodging is a
+// day trip, which is home.
+func (r run) away() bool {
+	if r.first().Equal(r.last()) && !r.has(Stay, Lodged) {
+		return false
+	}
+	if slices.ContainsFunc(r, func(e Evidence) bool { return e.Source == FromCalendar }) {
+		return true
+	}
+	return r.has(NewPlace, FavouritePlace) && r.has(Lodged, GroundTransport)
+}
+
+// assemble finds the trips in evidence. Evidence no more than evidenceGap days apart is one
+// run; a flight leaving home starts a run and one returning ends it. Runs are joined across a
+// gap with no home activity in it, never across a return home and never into a flight leaving
+// home. A joined run that is away is a trip from its first evidence day to its last, named
+// for its first.
+func assemble(evidence []Evidence, home []time.Time) []Inferred {
+	evidence = slices.Clone(evidence)
+	slices.SortFunc(evidence, func(a, b Evidence) int {
+		return cmp.Or(a.Day.Compare(b.Day), cmp.Compare(rank(a.Sign), rank(b.Sign)), cmp.Compare(a.Source, b.Source), cmp.Compare(a.What, b.What), cmp.Compare(a.Sign, b.Sign))
+	})
+	var runs []run
+	for _, e := range evidence {
+		n := len(runs)
+		if n == 0 || runs[n-1].home() || day.Between(runs[n-1].last(), e.Day) > evidenceGap || e.Sign == FlightOut && runs[n-1].last().Before(e.Day) {
+			runs = append(runs, nil)
+			n++
+		}
+		runs[n-1] = append(runs[n-1], e)
+	}
+	var joined []run
+	for _, r := range runs {
+		if n := len(joined); n > 0 && !joined[n-1].home() && r[0].Sign != FlightOut && !homeBetween(home, joined[n-1].last(), r.first()) {
+			joined[n-1] = append(joined[n-1], r...)
+			continue
+		}
+		joined = append(joined, r)
+	}
+	var out []Inferred
+	for _, r := range joined {
+		if r.away() {
+			out = append(out, Inferred{Trip: Trip{Name: "trip-" + day.Format(r.first()), From: r.first(), To: r.last()}, Evidence: r})
+		}
+	}
+	return out
+}
+
+// rank orders a day's evidence: a flight leaving home first and one returning last.
+func rank(s Sign) int {
+	switch s {
+	case FlightOut:
+		return 0
+	case FlightBack:
+		return 2
+	}
+	return 1
+}
+
+// homeBetween reports whether one of days falls strictly between a and b.
+func homeBetween(days []time.Time, a, b time.Time) bool {
+	return slices.ContainsFunc(days, func(d time.Time) bool { return d.After(a) && d.Before(b) })
 }
 
 // IsCash reports whether t is a withdrawal or an ATM fee rebate: money of kind Cash on the
