@@ -115,10 +115,10 @@ func (p Placer) Place(txs []Transaction) Placing {
 	return w.Placing
 }
 
-// charge places a charge in trip's dates. A home charge stays; an everywhere charge is in
-// doubt while someone was home; any other is a trip charge, put in its kind's Big
-// subcategory. A charge the trips layer doesn't own is placed once per version, so the
-// user's later correction stands.
+// charge places a charge in trip's dates. A home charge stays, as does a charge whose home
+// category stays home; an everywhere charge is in doubt while someone was home; any other is
+// a trip charge, put in its kind's Big subcategory. A charge the trips layer doesn't own is
+// placed once per version, so the user's later correction stands.
 func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	key := PlacedPrefix(t.ID) + trip.Version()
 	first := !w.Seen(key)
@@ -127,7 +127,7 @@ func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	}
 	flagged := first && !trip.To.Before(w.Settings.Start)
 	switch class := w.haunts.Class(t); {
-	case class == HomeCharge:
+	case w.staysHome(t) || class == HomeCharge:
 		w.revert(t)
 		return
 	case class == EverywhereCharge && homeActive:
@@ -147,6 +147,16 @@ func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	if flagged {
 		w.flag(t, Placed)
 	}
+}
+
+// staysHome reports whether t's home category is one that stays home: the category the home
+// layers decided, or, for a charge the trips layer placed, its origin's.
+func (w *placing) staysHome(t Transaction) bool {
+	category := t.Home.Category
+	if origin, ok := w.Origins[t.ID]; ok && t.Home.HasLabel(Label) {
+		category = origin.Category
+	}
+	return slices.Contains(w.Settings.StayHome, category)
 }
 
 // booking places a charge with a travel or lodging code outside every trip in its kind's

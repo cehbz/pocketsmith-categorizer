@@ -45,6 +45,7 @@ places = ["HOMETOWN", "HOME TOWN"]   # home places, as named in merchant names, 
 home_since = "2025-01-01"            # the home start: nothing before it is settled and no trip is inferred
 home_airports = ["HMT"]              # home's airports: a flight from one leaves home, a flight to one returns
 everywhere = ["GRAB"]                # always everywhere merchants, as word prefixes of the merchant
+stay_home = ["Utilities", "Phone"]   # home categories never trip spending: bills and care paid while away
 
 [trips.big]                          # each kind's Big subcategory
 transport = "Trip Transport"

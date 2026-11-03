@@ -246,6 +246,7 @@ type Trips struct {
 	HomeSince    string     `toml:"home_since"`    // the home start, YYYY-MM-DD: nothing before it is settled
 	HomeAirports []string   `toml:"home_airports"` // home's airports, as IATA codes
 	Everywhere   []string   `toml:"everywhere"`    // merchants always everywhere merchants (Grab), as word prefixes of the merchant
+	StayHome     []string   `toml:"stay_home"`     // home categories never trip spending: bills and care paid while away
 	Big          TripTitles `toml:"big"`           // each kind's Big subcategory
 	Home         HomeKinds  `toml:"home"`          // home categories with a kind, for charges without a code
 	Codes        *Codes     `toml:"codes"`         // merchant category codes by kind; the defaults when absent
@@ -367,6 +368,14 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 			}
 		}
 	}
+	var stayHome []ledger.CategoryID
+	for _, title := range tr.StayHome {
+		id, ok := ids[title]
+		if !ok {
+			return trips.Settings{}, fmt.Errorf("config: trips.stay_home: no category %q", title)
+		}
+		stayHome = append(stayHome, id)
+	}
 	if cs := tr.Codes; cs != nil {
 		for _, f := range []struct {
 			dst *[]trips.Range
@@ -382,7 +391,7 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 			*f.dst = rs
 		}
 	}
-	return trips.Settings{Kinds: kinds, Home: trips.Home{Places: tr.Places, Airports: tr.HomeAirports, Since: since}, Everywhere: tr.Everywhere, Start: start, CashAccount: c.Income.Account}, nil
+	return trips.Settings{Kinds: kinds, Home: trips.Home{Places: tr.Places, Airports: tr.HomeAirports, Since: since}, Everywhere: tr.Everywhere, StayHome: stayHome, Start: start, CashAccount: c.Income.Account}, nil
 }
 
 // TripsPath is the trip list the user edits, under home.

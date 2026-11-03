@@ -251,6 +251,7 @@ places = ["HOMETOWN"]
 home_since = "2025-01-01"
 home_airports = ["HMT"]
 everywhere = ["GRAB"]
+stay_home = ["Utilities", "Doctor"]
 
 [trips.big]
 transport = "Trip Transport"
@@ -280,7 +281,8 @@ token_ref = "/s/calendar-token.json"
 `
 
 var tripCats = []ledger.Category{{ID: 11, Title: "Trip Transport"}, {ID: 12, Title: "Trip Lodging"}, {ID: 13, Title: "Trip Food"},
-	{ID: 14, Title: "Trip Other"}, {ID: 15, Title: "Restaurants"}, {ID: 16, Title: "Taxi"}, {ID: 17, Title: "Trip Cash"}, {ID: 18, Title: "ATM"}}
+	{ID: 14, Title: "Trip Other"}, {ID: 15, Title: "Restaurants"}, {ID: 16, Title: "Taxi"}, {ID: 17, Title: "Trip Cash"}, {ID: 18, Title: "ATM"},
+	{ID: 19, Title: "Utilities"}, {ID: 20, Title: "Doctor"}}
 
 var tripStart = time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
 
@@ -298,6 +300,9 @@ func TestTripSettingsResolvesTitlesAndDefaultsTheCodes(t *testing.T) {
 		k.Big[trips.Cash] != 17 || k.Home[18] != trips.Cash ||
 		k.Home[15] != trips.Food || k.Home[16] != trips.Transport || !reflect.DeepEqual(k.Codes, trips.DefaultCodes()) {
 		t.Errorf("kinds = %+v", k)
+	}
+	if !slices.Equal(s.StayHome, []ledger.CategoryID{19, 20}) {
+		t.Errorf("stay home = %v, want [19 20]", s.StayHome)
 	}
 	if !slices.Equal(s.Home.Places, []string{"HOMETOWN"}) || !slices.Equal(s.Everywhere, []string{"GRAB"}) || !s.Start.Equal(tripStart) || s.CashAccount != "Checking" {
 		t.Errorf("settings = %+v", s)
@@ -378,6 +383,23 @@ func TestTripSettingsRejectsUnknownTitlesBadCodesAndABadHomeStart(t *testing.T) 
 		if _, err := c.TripSettings(tripCats, tripStart); err == nil {
 			t.Errorf("%s: TripSettings succeeded", name)
 		}
+	}
+}
+
+func TestTripSettingsNamesAnUnknownStayHomeTitleAndNeedsNone(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full+strings.Replace(tripsConfig, `"Doctor"`, `"Nope"`, 1), 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.TripSettings(tripCats, tripStart); err == nil || !strings.Contains(err.Error(), "trips.stay_home") || !strings.Contains(err.Error(), "Nope") {
+		t.Errorf("error = %v, want one naming trips.stay_home and Nope", err)
+	}
+	c, err = Load(write(t, "config.toml", full+strings.Replace(tripsConfig, "stay_home = [\"Utilities\", \"Doctor\"]\n", "", 1), 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := c.TripSettings(tripCats, tripStart); err != nil || len(s.StayHome) != 0 {
+		t.Errorf("without stay_home: %v, %v; want none", s.StayHome, err)
 	}
 }
 

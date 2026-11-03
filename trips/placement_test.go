@@ -129,6 +129,41 @@ func TestAnOnlineChargeNamingHomeStaysAndDoesntMakeTheTripHomeActive(t *testing.
 	}
 }
 
+// stayHome places with 30 (Utilities) and 31 (Doctor) as categories that stay home.
+func stayHome(list ...Trip) Placer {
+	pl := placer(list...)
+	pl.Settings.StayHome = []ledger.CategoryID{30, 31}
+	return pl
+}
+
+func TestAChargeInAStayHomeCategoryOnATripStaysAndOnePlacedEarlierReturnsToItsOrigin(t *testing.T) {
+	pl := stayHome(abroad)
+	pl.Origins = map[int64]ledger.State{3: {Category: 31}}
+	p := pl.Place([]Transaction{
+		online(1, "2026-10-10", -40, "TELCO", "4814", ledger.State{Category: 30}),
+		online(2, "2026-10-10", -3, "MART ONLINE", "5499", ledger.State{Category: 7}),
+		online(3, "2026-10-12", -80, "DENTIST", "8021", ledger.State{Category: 104, Labels: []string{Label, "trip-abroad"}}), // placed by an earlier run
+	})
+	notPlaced(t, p, 1)
+	wantState(t, p, 2, ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})
+	wantState(t, p, 3, ledger.State{Category: 31})
+	if len(p.Reasons[1]) != 0 || len(p.Reasons[3]) != 0 {
+		t.Errorf("reasons = %v, want none for the stay-home charges", p.Reasons)
+	}
+}
+
+func TestAStayHomeChargeDoesntMakeTheTripHomeActive(t *testing.T) {
+	p := stayHome(abroad).Place([]Transaction{
+		online(1, "2026-10-10", -40, "TELCO", "4814", ledger.State{Category: 30}),
+		txn(2, "2026-10-10", -2, "GRAB", "4121", ledger.State{Category: 6}),
+	})
+	notPlaced(t, p, 1)
+	wantState(t, p, 2, ledger.State{Category: 101, Labels: []string{Label, "trip-abroad"}})
+	if len(p.Reasons[2]) != 1 || p.Reasons[2][0] != Placed {
+		t.Errorf("reasons for Grab = %v, want placed", p.Reasons[2])
+	}
+}
+
 func TestARecurringChargeOnATripNobodyWasHomeForStays(t *testing.T) {
 	p := placer(abroad).Place([]Transaction{
 		txn(1, "2026-08-31", -9.99, "STREAM", "5815", ledger.State{Category: 9}),

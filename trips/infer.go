@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
+	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
 const evidenceGap = 2 // most days between a run's evidence days
@@ -13,10 +14,11 @@ const evidenceGap = 2 // most days between a run's evidence days
 // Settings are what inference and placing need besides the transactions.
 type Settings struct {
 	Kinds       Kinds
-	Home        Home      // where the household lives
-	Everywhere  []string  // merchants that are always everywhere merchants (Grab), as word prefixes of the merchant
-	Start       time.Time // the attention start: trips ending before it are back-filled unflagged
-	CashAccount string    // the account cash is withdrawn from
+	Home        Home                // where the household lives
+	Everywhere  []string            // merchants that are always everywhere merchants (Grab), as word prefixes of the merchant
+	StayHome    []ledger.CategoryID // home categories never trip spending: bills and care paid while away
+	Start       time.Time           // the attention start: trips ending before it are back-filled unflagged
+	CashAccount string              // the account cash is withdrawn from
 }
 
 // Inferred is an inferred trip and the evidence it rests on.
