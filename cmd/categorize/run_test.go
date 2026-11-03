@@ -79,7 +79,8 @@ func (c *countingTrips) Save(list trips.List, written []trips.Trip) error {
 
 // tripRun is a session over a card with a three-day trip from 2026-10-05: two in-store hotel
 // nights and a new restaurant, a hotel refund after it, a flight booked before it and a
-// grocer at home around it.
+// grocer at home around it. Two new cafés on consecutive days at the start of the history
+// are inside the inference warm-up, so they make no trip.
 func tripRun(t *testing.T) (*session, *fakeLedger) {
 	t.Helper()
 	card := ledger.Account{Name: "Card"}
@@ -91,6 +92,7 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 		tx(1, "2026-08-01", -5, "GROCER"), tx(2, "2026-09-01", -5.5, "GROCER"), tx(3, "2026-10-20", -6, "GROCER"),
 		tx(4, "2026-10-05", -120, "HOTEL FARCITY"), tx(5, "2026-10-06", -12, "NOODLES FARCITY"), tx(6, "2026-10-07", -125, "HOTEL FARCITY"),
 		tx(7, "2026-10-15", 125, "HOTEL FARCITY"), tx(8, "2026-09-01", -400, "AIRLINE"),
+		tx(9, "2025-12-01", -10, "CAFE ALPHA FARCITY"), tx(10, "2025-12-02", -10, "CAFE BETA FARCITY"),
 	} {
 		l.txs[x.ID] = x
 	}
@@ -101,6 +103,7 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 		rec("2026-10-05", 120, "HOTEL FARCITY", "Hotel Farcity", "7011", true), rec("2026-10-06", 12, "NOODLES FARCITY", "Noodles", "5812", true),
 		rec("2026-10-07", 125, "HOTEL FARCITY", "Hotel Farcity", "7011", true), rec("2026-10-15", -125, "HOTEL FARCITY", "Hotel Farcity", "7011", false),
 		rec("2026-09-01", 400, "AIRLINE", "Airline", "4511", false),
+		rec("2025-12-01", 10, "CAFE ALPHA FARCITY", "Cafe Alpha", "5812", true), rec("2025-12-02", 10, "CAFE BETA FARCITY", "Cafe Beta", "5812", true),
 	}}
 	start := mustParse("2026-10-01")
 	big := map[trips.Kind]ledger.CategoryID{trips.Transport: 101, trips.Lodging: 102, trips.Food: 103, trips.Discretionary: 104, trips.Cash: 105}
@@ -141,6 +144,10 @@ func TestASecondRunOverTheFirstRunsOutputAppliesNothing(t *testing.T) {
 	if !reflect.DeepEqual(store.list, trips.List{trip}) || l.txs[4].State.Category != 102 || !l.txs[4].State.HasLabel(trip.Name) ||
 		l.txs[7].State.Category != 102 || l.txs[8].State.Category != 101 || l.txs[2].State.Category != 5 {
 		t.Fatalf("first run: list %v, hotel %+v, refund %+v, booking %+v, grocer %+v\n%s", store.list, l.txs[4].State, l.txs[7].State, l.txs[8].State, l.txs[2].State, out.String())
+	}
+	if got := out.String(); !strings.Contains(got, "trips added (1):") || !strings.Contains(got, "trips with new names or dates (0):") ||
+		!l.txs[4].State.NeedsReview || !l.txs[4].State.HasLabel(trips.Placed) {
+		t.Errorf("first run: hotel %+v; want it flagged placed, one trip added and none with a new version\n%s", l.txs[4].State, got)
 	}
 	l.updates, store.saves = 0, 0
 	out.Reset()
@@ -186,5 +193,116 @@ func TestARunExtendsATripInProgressAndTheNextAppliesNothing(t *testing.T) {
 	}
 	if l.updates != 0 || store.saves != 0 {
 		t.Errorf("next run: %d updates, %d trip list saves; want none\n%s", l.updates, store.saves, out.String())
+	}
+}
+
+// first runs the first run of tripRun and returns its trip.
+func first(t *testing.T, newRunner func() runner, s *session) trips.Trip {
+	t.Helper()
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	return trips.Trip{Name: "trip-2026-10-05", From: mustParse("2026-10-05"), To: mustParse("2026-10-07")}
+}
+
+func TestAReviewedPlacementIsntFlaggedAgain(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := tripRun(t)
+	first(t, newRunner, s)
+	for id, tx := range l.txs {
+		tx.State.NeedsReview = false // the user reviewed everything
+		l.txs[id] = tx
+	}
+	l.updates = 0
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if l.updates != 0 {
+		t.Errorf("run after the review: %d updates, hotel %+v; want none: the placements were flagged once\n%s", l.updates, l.txs[4].State, out.String())
+	}
+}
+
+func TestAChargeTheUserRecategorizedIsntPlacedAgain(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := tripRun(t)
+	first(t, newRunner, s)
+	hotel := l.txs[4]
+	hotel.State.Category = 9 // the user's correction, to a category placement would not choose
+	l.txs[4] = hotel
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.txs[4].State; got.Category != 9 || got.HasLabel(trips.Label) ||
+		!strings.Contains(out.String(), "applied 0 of 0 changes") || !strings.Contains(out.String(), "your corrections (1):") {
+		t.Errorf("hotel after the correction: %+v; want the user's category, no longer the categorizer's, and no placement\n%s", got, out.String())
+	}
+}
+
+func TestATripTheUserDeletedReturnsItsChargesToWhereTheyWere(t *testing.T) {
+	newRunner, store := runners(t)
+	s, l := tripRun(t)
+	trip := first(t, newRunner, s)
+	store.list = nil // deleted from the list; the record of trips written keeps it
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	// The restaurant returns to where it was; the lodging, outside every trip, is a booking.
+	if got := l.txs[5].State; got.Category != 5 || got.HasLabel(trips.Label) || got.HasLabel(trip.Name) {
+		t.Errorf("restaurant after the trip was deleted: %+v; want category 5 without the trip's labels\n%s", got, out.String())
+	}
+	for _, id := range []int64{4, 6} {
+		if got := l.txs[id].State; !got.HasLabel(trips.Booking) || got.HasLabel(trip.Name) {
+			t.Errorf("transaction %d after the trip was deleted: %+v; want a booking without the trip's name\n%s", id, got, out.String())
+		}
+	}
+	if len(store.list) != 0 {
+		t.Errorf("list = %v; the deleted trip was written before and isn't listed again", store.list)
+	}
+}
+
+func TestAListedTripChangesNothingInTheLedgerAndIsStillRecordedUnderARun(t *testing.T) {
+	newRunner, store := runners(t)
+	s, l := tripRun(t)
+	trip := first(t, newRunner, s)
+	store.list, store.written = nil, nil // the user wiped both files
+	l.updates = 0
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(store.list, trips.List{trip}) || l.updates != 0 || strings.Contains(out.String(), "run (none)") {
+		t.Errorf("list %v, %d updates; want %v listed under a run of its own\n%s", store.list, l.updates, trip, out.String())
+	}
+}
+
+func TestATripTheUserRenamedIsReportedAndItsChargesPlacedUnderTheNewName(t *testing.T) {
+	newRunner, store := runners(t)
+	s, l := tripRun(t)
+	first(t, newRunner, s)
+	store.list = trips.List{{Name: "trip-farcity", From: mustParse("2026-10-05"), To: mustParse("2026-10-07")}}
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "trips with new names or dates (1):\n  trip-farcity") || !l.txs[4].State.HasLabel("trip-farcity") {
+		t.Errorf("hotel %+v; want it under the new name and the report to list the trip\n%s", l.txs[4].State, out.String())
+	}
+}
+
+func TestARunLeavesChargesDatedBeforeItsLookbackAsTheyAre(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := tripRun(t)
+	r := newRunner()
+	r.lookback = 30
+	var out strings.Builder
+	if err := r.run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if l.txs[4].State.Category != 102 || l.txs[8].State.Category != 5 {
+		t.Errorf("hotel %+v, flight booked before the lookback %+v; want the hotel placed and the flight left\n%s", l.txs[4].State, l.txs[8].State, out.String())
 	}
 }

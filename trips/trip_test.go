@@ -34,8 +34,10 @@ func TestUpdateAppendsTripsOverlappingNoListedOrWrittenTrip(t *testing.T) {
 	x := Trip{Name: "x", From: date("2026-03-08"), To: date("2026-03-12")}
 	y := Trip{Name: "y", From: date("2026-05-04"), To: date("2026-05-06")}
 	z := Trip{Name: "z", From: date("2026-07-01"), To: date("2026-07-03")}
-	list, c := List{listed}.Update([]Trip{x, y, z}, []Trip{listed, deleted})
-	if !reflect.DeepEqual(list, List{listed, z}) || !reflect.DeepEqual(c, Listing{Added: []Trip{z}}) {
+	handmade := Trip{Name: "handmade", From: date("2026-09-01"), To: date("2026-09-05")} // listed by hand, never written
+	v := Trip{Name: "v", From: date("2026-09-04"), To: date("2026-09-06")}
+	list, c := List{listed, handmade}.Update([]Trip{x, y, z, v}, []Trip{listed, deleted})
+	if !reflect.DeepEqual(list, List{listed, handmade, z}) || !reflect.DeepEqual(c, Listing{Added: []Trip{z}}) {
 		t.Errorf("Update = %v, %+v; want the list with z, and z added", list, c)
 	}
 }
@@ -63,18 +65,22 @@ func TestUpdateLeavesEditedTripsAndExtensionsThatWouldOverlapAnotherTrip(t *test
 	renamed.Name = "trip-2026-11-farcity"
 	visaRun.VisaRun = true
 	shorter.To = date("2026-11-02")
+	laterStart := Trip{Name: "trip-2026-11-02", From: date("2026-11-02"), To: date("2026-11-08")}
 	for name, c := range map[string]struct {
-		list    List
-		written []Trip
+		list     List
+		written  []Trip
+		inferred Trip
 	}{
-		"renamed":         {List{renamed}, []Trip{inProgress}},
-		"visa run set":    {List{visaRun}, []Trip{inProgress}},
-		"dates edited":    {List{shorter}, []Trip{inProgress}},
-		"never written":   {List{inProgress}, nil},
-		"listed overlap":  {List{inProgress, {Name: "next", From: date("2026-11-07"), To: date("2026-11-09")}}, []Trip{inProgress}},
-		"deleted overlap": {List{inProgress}, []Trip{inProgress, {Name: "gone", From: date("2026-11-08"), To: date("2026-11-09")}}},
+		"renamed":            {List{renamed}, []Trip{inProgress}, longer},
+		"visa run set":       {List{visaRun}, []Trip{inProgress}, longer},
+		"dates edited":       {List{shorter}, []Trip{inProgress}, longer},
+		"never written":      {List{inProgress}, nil, longer},
+		"listed overlap":     {List{inProgress, {Name: "next", From: date("2026-11-07"), To: date("2026-11-09")}}, []Trip{inProgress}, longer},
+		"deleted overlap":    {List{inProgress}, []Trip{inProgress, {Name: "gone", From: date("2026-11-08"), To: date("2026-11-09")}}, longer},
+		"starts a day later": {List{inProgress}, []Trip{inProgress}, laterStart},
+		"same dates":         {List{inProgress}, []Trip{inProgress}, inProgress},
 	} {
-		list, got := c.list.Update([]Trip{longer}, c.written)
+		list, got := c.list.Update([]Trip{c.inferred}, c.written)
 		if !reflect.DeepEqual(list, c.list) || !got.Empty() {
 			t.Errorf("%s: Update = %v, %+v; want the list unchanged", name, list, got)
 		}

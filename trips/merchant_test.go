@@ -78,11 +78,13 @@ func TestHomeActivityIsAHomeMerchantsChargeThatIsntRecurring(t *testing.T) {
 	local := charge(2, "2026-03-05", -5, "LOCAL")
 	stream := charge(5, "2026-03-05", -9.99, "STREAM")
 	credit := charge(6, "2026-03-06", 5, "LOCAL")
+	ryokan := charge(7, "2026-03-07", -80, "RYOKAN")
 	txs := []Transaction{charge(1, "2026-02-01", -5, "LOCAL"), local,
-		charge(3, "2026-01-04", -9.99, "STREAM"), charge(4, "2026-02-03", -9.99, "STREAM"), stream, credit}
+		charge(3, "2026-01-04", -9.99, "STREAM"), charge(4, "2026-02-03", -9.99, "STREAM"), stream, credit, ryokan}
 	m := NewMerchants(txs, List{tripA}, Settings{})
-	if !m.HomeActivity(local) || m.HomeActivity(stream) || m.HomeActivity(credit) {
-		t.Errorf("home activity: local %v, recurring %v, credit %v; want true, false, false", m.HomeActivity(local), m.HomeActivity(stream), m.HomeActivity(credit))
+	if !m.HomeActivity(local) || m.HomeActivity(stream) || m.HomeActivity(credit) || m.HomeActivity(ryokan) {
+		t.Errorf("home activity: local %v, recurring %v, credit %v, trip merchant %v; want true, false, false, false",
+			m.HomeActivity(local), m.HomeActivity(stream), m.HomeActivity(credit), m.HomeActivity(ryokan))
 	}
 }
 
@@ -95,6 +97,9 @@ func TestThePayeeKeySkipsTokensWithThreeOrMoreDigits(t *testing.T) {
 		"7-ELEVEN 54321 FARCITY":              "ELEVEN FARCITY",
 		"12GO FARCITY":                        "GO FARCITY",
 		"98765":                               "98765",
+		"AB123 CAFE FARCITY":                  "CAFE FARCITY", // exactly three digits is skipped
+		"AB12 CAFE FARCITY":                   "AB CAFE",      // two digits stays in the key
+		"AB123 456":                           "AB",           // every token skipped: the whole payee's key
 	} {
 		if got := (Transaction{Transaction: ledger.Transaction{Payee: payee}}).Merchant(); got != want {
 			t.Errorf("merchant of %q = %q, want %q", payee, got, want)
@@ -128,13 +133,16 @@ func TestAChainChargedOnTripsNobodyWasHomeForIsEverywhere(t *testing.T) {
 }
 
 func TestGrabIsAnEverywhereMerchantWhateverItsHistory(t *testing.T) {
-	grab, grabber := charge(2, "2026-02-05", -2, "GRAB TAXI"), charge(4, "2026-02-05", -2, "GRABBER")
-	m := NewMerchants([]Transaction{charge(1, "2026-02-01", -2, "GRAB TAXI"), grab, charge(3, "2026-02-01", -2, "GRABBER"), grabber}, List{tripA}, hometown)
+	grab, grabber, grab2 := charge(2, "2026-02-05", -2, "GRAB TAXI"), charge(4, "2026-02-05", -2, "GRABBER"), charge(6, "2026-02-05", -2, "GRAB2")
+	m := NewMerchants([]Transaction{charge(1, "2026-02-01", -2, "GRAB TAXI"), grab, charge(3, "2026-02-01", -2, "GRABBER"), grabber, charge(5, "2026-02-01", -2, "GRAB2"), grab2}, List{tripA}, hometown)
 	if m.Class(grab) != EverywhereMerchant || m.HomeActivity(grab) {
 		t.Errorf("grab at home: class %v, home activity %v; want everywhere, none", m.Class(grab), m.HomeActivity(grab))
 	}
 	if got := m.Class(grabber); got != HomeMerchant {
 		t.Errorf("GRABBER: class %v, want home: GRAB is a word prefix", got)
+	}
+	if got := m.Class(grab2); got != HomeMerchant {
+		t.Errorf("GRAB2: class %v, want home: GRAB is a word prefix", got)
 	}
 }
 
@@ -158,5 +166,49 @@ func TestAHomeNamedGrabChargeDoesntShowAnyoneHome(t *testing.T) {
 	m := NewMerchants(txs, List{tripA, tripB}, hometown)
 	if got := m.Class(onA); got != EverywhereMerchant {
 		t.Errorf("cafe: class %v, want everywhere: Grab on trip A shows nobody home", got)
+	}
+}
+
+func TestAMerchantNamingAHomePlaceInItsRecordOrItsPayeeIsHomeInAnyCase(t *testing.T) {
+	// Charged on trips only, so only naming a place makes them home; the place is in lower case.
+	inPayee := func(id int64, d string) Transaction {
+		return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: -4, Payee: "SHOP Home Town 1234"}, Evidence: Evidence{Merchant: "Shop"}}
+	}
+	inRecord := func(id int64, d string) Transaction {
+		return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: -4, Payee: "Kiosk"}, Evidence: Evidence{Merchant: "Kiosk HOME TOWN"}}
+	}
+	txs := []Transaction{inPayee(1, "2026-03-05"), inPayee(2, "2026-06-05"), inRecord(3, "2026-03-06"), inRecord(4, "2026-06-06")}
+	m := NewMerchants(txs, List{tripA, tripB}, Settings{Places: []string{"home town"}})
+	for _, c := range txs {
+		if got := m.Class(c); got != HomeMerchant {
+			t.Errorf("%s (payee %q): class %v, want home", c.Merchant(), c.Payee, got)
+		}
+	}
+}
+
+func TestARecurringChargeNamingHomeDoesntShowAnyoneHome(t *testing.T) {
+	// The subscription's March charge falls on trip A, and a mart naming home is the only
+	// other charge on trip B; the chain, charged on both, was away on A.
+	stream := charge(3, "2026-03-05", -9.99, "STREAM HOMETOWN")
+	chain := charge(5, "2026-03-06", -3, "CHAIN")
+	txs := []Transaction{charge(1, "2026-02-05", -9.99, "STREAM HOMETOWN"), charge(2, "2026-04-05", -9.99, "STREAM HOMETOWN"), stream,
+		charge(4, "2026-02-01", -3, "CHAIN"), chain, charge(6, "2026-06-06", -3, "CHAIN"), charge(7, "2026-06-05", -2, "MART HOMETOWN")}
+	m := NewMerchants(txs, List{tripA, tripB}, hometown)
+	if !m.Recurring(stream) {
+		t.Fatal("the subscription isn't recurring")
+	}
+	if got := m.Class(chain); got != EverywhereMerchant {
+		t.Errorf("chain: class %v, want everywhere: a subscription on trip A shows nobody home", got)
+	}
+}
+
+func TestAMerchantNamingHomeChargedOnlyOnTripsShowsSomeoneHome(t *testing.T) {
+	// The chain is on two trips, so being on one doesn't show home for it.
+	chain := charge(3, "2026-03-06", -3, "CHAIN")
+	txs := []Transaction{charge(1, "2026-02-01", -3, "CHAIN"), chain, charge(4, "2026-06-06", -3, "CHAIN"),
+		charge(2, "2026-03-05", -2, "MART HOMETOWN"), charge(5, "2026-06-05", -2, "MART HOMETOWN")}
+	m := NewMerchants(txs, List{tripA, tripB}, hometown)
+	if got := m.Class(chain); got != HomeMerchant {
+		t.Errorf("chain: class %v, want home: a home place's charge on each trip shows someone home", got)
 	}
 }

@@ -40,8 +40,13 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		t.Errorf("Load = %+v, %+v; want %+v, %+v", gotList, gotWritten, list, written)
 	}
 	for _, path := range []string{f.List, f.Written} {
-		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-			t.Errorf("%s: mode %v, %v; want 0600", path, info.Mode().Perm(), err)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("%s: mode %v; want 0600", path, info.Mode().Perm())
 		}
 	}
 	if b, _ := os.ReadFile(f.List); !strings.HasPrefix(string(b), "# Trips") {

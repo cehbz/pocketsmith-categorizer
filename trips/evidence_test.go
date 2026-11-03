@@ -54,16 +54,18 @@ func TestMatchKeepsToTheRecordsAccount(t *testing.T) {
 }
 
 func TestMatchPrefersSharedPayeeWordsThenTheNearestDate(t *testing.T) {
-	txs := []ledger.Transaction{ltx(1, "2026-03-10", -9, "CAFE ONE BIGCITY", "Card"), ltx(2, "2026-03-10", -4, "SHOP", "Card")}
+	txs := []ledger.Transaction{ltx(1, "2026-03-10", -9, "CAFE ONE BIGCITY", "Card"), ltx(2, "2026-03-10", -4, "SHOP", "Card"), ltx(3, "2026-03-10", -6, "KIOSK", "Card")}
 	recs := []Record{
 		rec("near", "2026-03-10", 9, "OTHER PLACE", "Other"),
 		rec("words", "2026-03-13", 9, "CAFE ONE", "Cafe One"),
 		rec("far", "2026-03-14", 4, "SHOP", "Far Shop"),
 		rec("close", "2026-03-11", 4, "SHOP", "Close Shop"),
+		rec("before", "2026-03-08", 6, "KIOSK", "Far Kiosk"), // earlier, so first by date, but farther
+		rec("after", "2026-03-11", 6, "KIOSK", "Near Kiosk"),
 	}
 	got := Match(txs, recs)
-	if got[1].Merchant != "Cafe One" || got[2].Merchant != "Close Shop" {
-		t.Errorf("Match = %+v, want Cafe One and Close Shop", got)
+	if got[1].Merchant != "Cafe One" || got[2].Merchant != "Close Shop" || got[3].Merchant != "Near Kiosk" {
+		t.Errorf("Match = %+v, want Cafe One, Close Shop and Near Kiosk", got)
 	}
 }
 

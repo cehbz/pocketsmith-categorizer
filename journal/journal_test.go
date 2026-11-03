@@ -233,9 +233,14 @@ func TestOriginsIsTheStateBeforeTheTripChangesBegan(t *testing.T) {
 	recordChange(t, s, 1, categorize.Change{Charge: 11, Before: ledger.State{NeedsReview: true}, After: ruled, Source: "rule a"})
 	recordChange(t, s, 2, categorize.Change{Charge: 11, Before: ruled, After: placed, Source: "trips: t1"})
 	recordChange(t, s, 3, categorize.Change{Charge: 11, Before: placed, After: ledger.State{Category: 8, Labels: []string{"auto-trip"}}, Source: "trips: t2"})
+	// A change that isn't a trips one ends the run of them: the next run's origin is its Before.
+	edited := ledger.State{Category: 9}
+	recordChange(t, s, 4, categorize.Change{Charge: 12, Before: ruled, After: placed, Source: "trips: t1"})
+	recordChange(t, s, 5, categorize.Change{Charge: 12, Before: placed, After: edited, Source: "rule b"})
+	recordChange(t, s, 6, categorize.Change{Charge: 12, Before: edited, After: placed, Source: "trips: t2"})
 	got, err := s.Origins(isTrip)
-	if err != nil || len(got) != 1 || !got[11].Equal(ruled) {
-		t.Errorf("Origins = %v, %v; want the rule's state", got, err)
+	if err != nil || len(got) != 2 || !got[11].Equal(ruled) || !got[12].Equal(edited) {
+		t.Errorf("Origins = %v, %v; want the rule's state, and the state after the edit", got, err)
 	}
 }
 

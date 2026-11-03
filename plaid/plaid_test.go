@@ -23,10 +23,13 @@ func mustDay(s string) time.Time {
 }
 
 // server is a fake Plaid with two accounts, answering transactions two to a page; bodies
-// records each request's body.
+// records each request's body. It reports total_transactions one over what it holds, so
+// only an empty page ends the read, and fails any request after that one with an error, so
+// a loop that does not end fails an assertion instead of hanging.
 func server(t *testing.T, txs []Transaction, pageSize int) (c *Client, bodies *[]map[string]any) {
 	t.Helper()
 	bodies = &[]map[string]any{}
+	pages := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -37,6 +40,12 @@ func server(t *testing.T, txs []Transaction, pageSize int) (c *Client, bodies *[
 		case "/accounts/get":
 			json.NewEncoder(w).Encode(map[string]any{"accounts": []Account{{ID: "acc-1", Mask: "1111", Name: "Card One"}, {ID: "acc-2", Mask: "2222", Name: "Card Two"}}})
 		case "/transactions/get":
+			if pages++; pages > (len(txs)+pageSize-1)/pageSize+1 {
+				t.Errorf("transactions request %d: the read should have ended", pages)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"error_code":"TOO_MANY","error_message":"too many pages"}`))
+				return
+			}
 			offset := int(body["options"].(map[string]any)["offset"].(float64))
 			end := min(offset+pageSize, len(txs))
 			json.NewEncoder(w).Encode(map[string]any{"transactions": txs[min(offset, end):end], "total_transactions": len(txs) + 1})

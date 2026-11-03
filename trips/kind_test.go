@@ -57,8 +57,8 @@ func TestWithoutACodeTheHomeCategoryGivesTheKind(t *testing.T) {
 }
 
 func TestParseRangesReadsCodesAndRanges(t *testing.T) {
-	got, err := ParseRanges([]string{"4111", "3000-3299"})
-	if err != nil || !slices.Equal(got, []Range{{4111, 4111}, {3000, 3299}}) {
+	got, err := ParseRanges([]string{"4111", "3000-3299", " 5400 - 5499 "})
+	if err != nil || !slices.Equal(got, []Range{{4111, 4111}, {3000, 3299}, {5400, 5499}}) {
 		t.Errorf("ParseRanges = %v, %v", got, err)
 	}
 	for _, bad := range []string{"x", "3299-3000", "1-"} {
