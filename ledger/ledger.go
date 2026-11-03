@@ -54,6 +54,7 @@ type Transaction struct {
 	Payee          string
 	Account        Account
 	ClosingBalance float64 // the account's balance after this transaction
+	Transfer       bool    // a move between the user's own accounts
 	State          State
 }
 

@@ -159,3 +159,14 @@ func TestCategoriesTranslates(t *testing.T) {
 		t.Errorf("Categories = %+v, want %+v", got, want)
 	}
 }
+
+func TestTransactionsCarriesTransfers(t *testing.T) {
+	f := &fakeAPI{txs: []api.Transaction{{ID: 1, Transfer: true}, {ID: 2}}}
+	got, err := (&Ledger{API: f}).Transactions(context.Background(), time.Time{}, time.Time{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[0].Transfer || got[1].Transfer {
+		t.Errorf("transfers = %v, %v; want true, false", got[0].Transfer, got[1].Transfer)
+	}
+}

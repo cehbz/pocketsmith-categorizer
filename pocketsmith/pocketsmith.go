@@ -85,6 +85,7 @@ func transaction(t api.Transaction) ledger.Transaction {
 		Payee:          t.Payee,
 		Account:        ledger.Account{ID: t.Account.ID, Name: t.Account.Name},
 		ClosingBalance: t.ClosingBalance,
+		Transfer:       t.Transfer,
 		State:          charge(t).State,
 	}
 }
