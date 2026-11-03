@@ -29,6 +29,17 @@ func TestAFlightsRouteLeavesHomeFromAHomeAirportReturnsToOneAndIsAwayOtherwise(t
 	}
 }
 
+func TestAFlightGmailTitlesToHomeIsAFlightBackOnItsArrivalDay(t *testing.T) {
+	e := event("Flight to Hometown (ZZ 102)", "", "2025-05-02", "2025-05-03") // departs late, arrives early the next day
+	if got, want := e.Evidence(flyer), []Evidence{cal("2025-05-03", FlightBack, "Flight to Hometown (ZZ 102)")}; !reflect.DeepEqual(got, want) {
+		t.Errorf("evidence %+v, want %+v", got, want)
+	}
+	away := event("Flight to Farcity (ZZ 101)", "", "2025-05-02", "2025-05-03")
+	if got, want := away.Evidence(flyer), []Evidence{cal("2025-05-02", Flight, "Flight to Farcity (ZZ 101)")}; !reflect.DeepEqual(got, want) {
+		t.Errorf("evidence %+v, want %+v", got, want)
+	}
+}
+
 func TestAStayAwayIsEvidenceFromCheckInThroughCheckOut(t *testing.T) {
 	timed := event("Stay at Inn Farcity", "1 Harbour Road, Farcity", "2025-03-10", "2025-03-12")
 	if got, want := timed.Evidence(flyer), stay("2025-03-10", "2025-03-12", "Stay at Inn Farcity"); !reflect.DeepEqual(got, want) {

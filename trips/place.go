@@ -127,20 +127,21 @@ func (h Haunts) Home(t Transaction) bool {
 	return ok && (h.settled[pl] || named(t, h.places.home))
 }
 
-// Class is what a charge on a trip is, by where it was made.
+// Class is what a charge on a trip is: by what it is, or by where it was made.
 type Class int
 
 const (
-	HomeCharge       Class = iota + 1 // at a settled place or a place naming home, or recurring
+	HomeCharge       Class = iota + 1 // recurring, naming home, or at a settled place
 	TripCharge                        // at any other place
 	EverywhereCharge                  // at no place: online, digital, Grab, unmatched
 )
 
-// Class is t's class.
+// Class classifies t: a recurring charge or one naming home, however paid, is a home
+// charge, as is a charge at a settled place.
 func (h Haunts) Class(t Transaction) Class {
 	pl, ok := h.places.At(t)
 	switch {
-	case h.places.Recurring(t) || ok && (h.settled[pl] || named(t, h.places.home)):
+	case h.places.Recurring(t) || named(t, h.places.home) || ok && h.settled[pl]:
 		return HomeCharge
 	case ok:
 		return TripCharge

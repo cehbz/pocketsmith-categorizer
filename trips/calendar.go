@@ -37,9 +37,10 @@ func (e Event) LastDay() time.Time {
 // Evidence is the travel evidence e is. A flight, an event whose title carries a route of
 // airport codes, leaves home on its departure date when it departs a home airport, returns
 // on its arrival date when it arrives at one, and is away on its departure date otherwise;
-// so is a flight Gmail titled `Flight to ...`. A stay, titled `Stay at ...`, whose location
-// doesn't name home, is away on each day from check-in to check-out. Any other event is no
-// evidence.
+// a flight Gmail titled `Flight to ...`, which names a city, not airports, returns on its
+// arrival date when the title names home and is away on its departure date otherwise. A
+// stay, titled `Stay at ...`, whose location doesn't name home, is away on each day from
+// check-in to check-out. Any other event is no evidence.
 func (e Event) Evidence(h Home) []Evidence {
 	sign := func(d time.Time, s Sign) Evidence {
 		return Evidence{Day: d, Source: FromCalendar, Sign: s, What: e.Title}
@@ -54,6 +55,9 @@ func (e Event) Evidence(h Home) []Evidence {
 		return []Evidence{sign(e.Start, Flight)}
 	}
 	if flightTo.MatchString(e.Title) {
+		if h.Names(e.Title) {
+			return []Evidence{sign(e.LastDay(), FlightBack)}
+		}
 		return []Evidence{sign(e.Start, Flight)}
 	}
 	if !stayAt.MatchString(e.Title) || h.Names(e.Location) {

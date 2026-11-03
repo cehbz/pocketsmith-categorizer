@@ -117,6 +117,18 @@ func TestAChargeAtAPlaceNamingHomeARecurringChargeAndATransferStay(t *testing.T)
 	}
 }
 
+func TestAnOnlineChargeNamingHomeStaysAndDoesntMakeTheTripHomeActive(t *testing.T) {
+	p := placer(abroad).Place([]Transaction{
+		online(1, "2026-10-10", -30, "HOMETOWN WATER", "4900", ledger.State{Category: 8}),
+		online(2, "2026-10-10", -3, "MART ONLINE", "5499", ledger.State{Category: 7}),
+	})
+	notPlaced(t, p, 1)
+	wantState(t, p, 2, ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})
+	if len(p.Reasons[1]) != 0 {
+		t.Errorf("reasons for the home charge = %v, want none", p.Reasons[1])
+	}
+}
+
 func TestARecurringChargeOnATripNobodyWasHomeForStays(t *testing.T) {
 	p := placer(abroad).Place([]Transaction{
 		txn(1, "2026-08-31", -9.99, "STREAM", "5815", ledger.State{Category: 9}),
