@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 func write(t *testing.T, name, content string, mode os.FileMode) string {
@@ -240,5 +242,120 @@ func TestSettingsRejectsUnknownTitlesAndBadDates(t *testing.T) {
 func TestJudgedPathIsUnderHome(t *testing.T) {
 	if got := JudgedPath("/h"); got != "/h/.local/state/pocketsmith-categorizer/judged.json" {
 		t.Errorf("JudgedPath = %q", got)
+	}
+}
+
+const tripsConfig = `
+[trips]
+places = ["HOMETOWN"]
+
+[trips.big]
+transport = "Trip Transport"
+lodging = "Trip Lodging"
+food = "Trip Food"
+discretionary = "Trip Other"
+cash = "Trip Cash"
+
+[trips.home]
+food = ["Restaurants"]
+transport = ["Taxi"]
+cash = ["ATM"]
+
+[plaid]
+client_id_ref = "/s/id"
+secret_ref = "/s/secret"
+access_token_ref = "/s/token"
+
+[plaid.accounts]
+"1111" = "Card"
+`
+
+var tripCats = []ledger.Category{{ID: 11, Title: "Trip Transport"}, {ID: 12, Title: "Trip Lodging"}, {ID: 13, Title: "Trip Food"},
+	{ID: 14, Title: "Trip Other"}, {ID: 15, Title: "Restaurants"}, {ID: 16, Title: "Taxi"}, {ID: 17, Title: "Trip Cash"}, {ID: 18, Title: "ATM"}}
+
+var tripStart = time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+
+func TestTripSettingsResolvesTitlesAndDefaultsTheCodes(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full+attentionConfig+tripsConfig, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.TripSettings(tripCats, tripStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := s.Kinds
+	if k.Big[trips.Transport] != 11 || k.Big[trips.Lodging] != 12 || k.Big[trips.Food] != 13 || k.Big[trips.Discretionary] != 14 ||
+		k.Big[trips.Cash] != 17 || k.Home[18] != trips.Cash ||
+		k.Home[15] != trips.Food || k.Home[16] != trips.Transport || !reflect.DeepEqual(k.Codes, trips.DefaultCodes()) {
+		t.Errorf("kinds = %+v", k)
+	}
+	if !slices.Equal(s.Places, []string{"HOMETOWN"}) || !s.Start.Equal(tripStart) || s.CashAccount != "Checking" {
+		t.Errorf("settings = %+v", s)
+	}
+	if p := c.Plaid; p.ClientIDRef != "/s/id" || p.SecretRef != "/s/secret" || p.AccessTokenRef != "/s/token" || p.Accounts["1111"] != "Card" {
+		t.Errorf("plaid = %+v", p)
+	}
+}
+
+func TestTripSettingsReadsTheCodes(t *testing.T) {
+	codes := "\n[trips.codes]\ntransport = [\"4111\"]\nlodging = [\"7011\"]\nfood = [\"5812\"]\nbooking = [\"3000-3299\"]\n"
+	c, err := Load(write(t, "config.toml", full+tripsConfig+codes, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.TripSettings(tripCats, tripStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := trips.Codes{Transport: []trips.Range{{Lo: 4111, Hi: 4111}}, Lodging: []trips.Range{{Lo: 7011, Hi: 7011}},
+		Food: []trips.Range{{Lo: 5812, Hi: 5812}}, Booking: []trips.Range{{Lo: 3000, Hi: 3299}}}
+	if !reflect.DeepEqual(s.Kinds.Codes, want) {
+		t.Errorf("codes = %+v, want %+v", s.Kinds.Codes, want)
+	}
+}
+
+func TestTripSettingsNamesWhatIsMissing(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.TripSettings(tripCats, tripStart)
+	if err == nil {
+		t.Fatal("TripSettings accepted a config without them")
+	}
+	for _, f := range []string{"trips.places", "trips.big.transport", "trips.big.lodging", "trips.big.food", "trips.big.discretionary", "trips.big.cash",
+		"plaid.client_id_ref", "plaid.secret_ref", "plaid.access_token_ref", "plaid.accounts"} {
+		if !strings.Contains(err.Error(), f) {
+			t.Errorf("error %q doesn't name %s", err, f)
+		}
+	}
+}
+
+func TestTripSettingsRejectsUnknownTitlesAndBadCodes(t *testing.T) {
+	for name, content := range map[string]string{
+		"unknown big":  strings.Replace(tripsConfig, `"Trip Food"`, `"Nope"`, 1),
+		"unknown home": strings.Replace(tripsConfig, `"Taxi"`, `"Nope"`, 1),
+		"bad code":     tripsConfig + "\n[trips.codes]\ntransport = [\"x\"]\n",
+	} {
+		c, err := Load(write(t, "config.toml", full+content, 0o600))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.TripSettings(tripCats, tripStart); err == nil {
+			t.Errorf("%s: TripSettings succeeded", name)
+		}
+	}
+}
+
+func TestTripPathsAreUnderHome(t *testing.T) {
+	if got := TripsPath("/h"); got != "/h/.config/pocketsmith-categorizer/trips.toml" {
+		t.Errorf("TripsPath = %q", got)
+	}
+	if got := WrittenTripsPath("/h"); got != "/h/.local/state/pocketsmith-categorizer/trips-written.toml" {
+		t.Errorf("WrittenTripsPath = %q", got)
+	}
+	if got := PlacedPath("/h"); got != "/h/.local/state/pocketsmith-categorizer/placed.json" {
+		t.Errorf("PlacedPath = %q", got)
 	}
 }

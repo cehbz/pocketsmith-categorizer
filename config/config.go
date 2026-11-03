@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
+	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
 // DefaultLabel marks the charges the categorizer has matched.
@@ -31,6 +33,8 @@ type Config struct {
 	Tips       Tips       `toml:"tips"`
 	Attention  Attention  `toml:"attention"`
 	Income     Income     `toml:"income"`
+	Trips      Trips      `toml:"trips"`
+	Plaid      Plaid      `toml:"plaid"`
 }
 
 // Categories are the PocketSmith category IDs for each kind of service.
@@ -220,4 +224,128 @@ func (c Config) Settings(cats []ledger.Category) (attention.Settings, error) {
 // JudgedPath is the record of transactions judged and income cycles checked, under home.
 func JudgedPath(home string) string {
 	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "judged.json")
+}
+
+// Trips is the trips layer's configuration, naming PocketSmith categories by title.
+type Trips struct {
+	Places []string   `toml:"places"` // home places, as named in merchant names and payees
+	Big    TripTitles `toml:"big"`    // each kind's Big subcategory
+	Home   HomeKinds  `toml:"home"`   // home categories with a kind, for charges without a code
+	Codes  *Codes     `toml:"codes"`  // merchant category codes by kind; the defaults when absent
+}
+
+// TripTitles names each kind's Big subcategory.
+type TripTitles struct {
+	Transport     string `toml:"transport"`
+	Lodging       string `toml:"lodging"`
+	Food          string `toml:"food"`
+	Discretionary string `toml:"discretionary"`
+	Cash          string `toml:"cash"`
+}
+
+// HomeKinds names the home categories of each kind.
+type HomeKinds struct {
+	Transport     []string `toml:"transport"`
+	Lodging       []string `toml:"lodging"`
+	Food          []string `toml:"food"`
+	Discretionary []string `toml:"discretionary"`
+	Cash          []string `toml:"cash"`
+}
+
+// Codes are merchant category codes and ranges ("3000-3299") by kind, and the codes of bookings.
+type Codes struct {
+	Transport []string `toml:"transport"`
+	Lodging   []string `toml:"lodging"`
+	Food      []string `toml:"food"`
+	Booking   []string `toml:"booking"`
+}
+
+// Plaid is where the card's records come from: references to its secrets, read as key_ref
+// is, and each card account's mask with the PocketSmith account it is.
+type Plaid struct {
+	ClientIDRef    string            `toml:"client_id_ref"`
+	SecretRef      string            `toml:"secret_ref"`
+	AccessTokenRef string            `toml:"access_token_ref"`
+	Accounts       map[string]string `toml:"accounts"`
+}
+
+// TripSettings resolves the trips settings, naming categories by title against cats; start
+// is the attention start, and cash is withdrawn from the income check's account.
+func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Settings, error) {
+	var missing []string
+	need := func(ok bool, name string) {
+		if !ok {
+			missing = append(missing, name)
+		}
+	}
+	tr, pl := c.Trips, c.Plaid
+	need(len(tr.Places) > 0, "trips.places")
+	need(tr.Big.Transport != "", "trips.big.transport")
+	need(tr.Big.Lodging != "", "trips.big.lodging")
+	need(tr.Big.Food != "", "trips.big.food")
+	need(tr.Big.Discretionary != "", "trips.big.discretionary")
+	need(tr.Big.Cash != "", "trips.big.cash")
+	need(pl.ClientIDRef != "", "plaid.client_id_ref")
+	need(pl.SecretRef != "", "plaid.secret_ref")
+	need(pl.AccessTokenRef != "", "plaid.access_token_ref")
+	need(len(pl.Accounts) > 0, "plaid.accounts")
+	if len(missing) > 0 {
+		return trips.Settings{}, fmt.Errorf("config: missing %s", strings.Join(missing, ", "))
+	}
+	ids := map[string]ledger.CategoryID{}
+	for _, cat := range cats {
+		ids[cat.Title] = cat.ID
+	}
+	kinds := trips.Kinds{Codes: trips.DefaultCodes(), Big: map[trips.Kind]ledger.CategoryID{}, Home: map[ledger.CategoryID]trips.Kind{}}
+	for _, k := range []struct {
+		kind  trips.Kind
+		big   string
+		homes []string
+	}{
+		{trips.Transport, tr.Big.Transport, tr.Home.Transport},
+		{trips.Lodging, tr.Big.Lodging, tr.Home.Lodging},
+		{trips.Food, tr.Big.Food, tr.Home.Food},
+		{trips.Discretionary, tr.Big.Discretionary, tr.Home.Discretionary},
+		{trips.Cash, tr.Big.Cash, tr.Home.Cash},
+	} {
+		for i, title := range append([]string{k.big}, k.homes...) {
+			id, ok := ids[title]
+			if !ok {
+				return trips.Settings{}, fmt.Errorf("config: trips: no category %q", title)
+			}
+			if i == 0 {
+				kinds.Big[k.kind] = id
+			} else {
+				kinds.Home[id] = k.kind
+			}
+		}
+	}
+	if cs := tr.Codes; cs != nil {
+		for _, f := range []struct {
+			dst *[]trips.Range
+			src []string
+		}{{&kinds.Codes.Transport, cs.Transport}, {&kinds.Codes.Lodging, cs.Lodging}, {&kinds.Codes.Food, cs.Food}, {&kinds.Codes.Booking, cs.Booking}} {
+			rs, err := trips.ParseRanges(f.src)
+			if err != nil {
+				return trips.Settings{}, fmt.Errorf("config: trips.codes: %w", err)
+			}
+			*f.dst = rs
+		}
+	}
+	return trips.Settings{Kinds: kinds, Places: tr.Places, Start: start, CashAccount: c.Income.Account}, nil
+}
+
+// TripsPath is the trip list the user edits, under home.
+func TripsPath(home string) string {
+	return filepath.Join(home, ".config", "pocketsmith-categorizer", "trips.toml")
+}
+
+// WrittenTripsPath is the record of every trip the categorizer wrote to the list, under home.
+func WrittenTripsPath(home string) string {
+	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "trips-written.toml")
+}
+
+// PlacedPath is the record of the trip placements made, under home.
+func PlacedPath(home string) string {
+	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "placed.json")
 }

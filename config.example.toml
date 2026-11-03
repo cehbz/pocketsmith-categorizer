@@ -38,3 +38,35 @@ rent = "Rent"
 cash = "Cash"              # cash withdrawn from the account
 target = 3000              # the balance the account is topped up to
 tolerance = 1500           # how far a cycle may land from the estimate
+
+# The trips layer. Categories are PocketSmith category titles.
+[trips]
+places = ["HOMETOWN", "HOME TOWN"]   # home places, as named in merchant names and payees
+
+[trips.big]                          # each kind's Big subcategory
+transport = "Trip Transport"
+lodging = "Trip Lodging"
+food = "Trip Food"
+discretionary = "Trip Other"
+cash = "Trip Cash"                   # cash withdrawn on a trip; the income estimate counts it as cash
+
+[trips.home]                         # home categories with a kind, for charges without a merchant code
+food = ["Groceries", "Restaurants"]
+transport = ["Taxi"]
+cash = ["Cash"]                      # withdrawals and ATM fee rebates on the income account
+
+[trips.codes]                        # merchant category codes by kind; omit for these defaults
+transport = ["3000-3299", "4111", "4112", "4121", "4131", "4411", "4511"]
+lodging = ["3501-3999", "4722", "6513", "7011"]
+food = ["5411", "5422", "5441", "5451", "5462", "5499", "5811-5814"]
+booking = ["3000-3299", "3501-3999", "4112", "4411", "4511", "4722", "6513", "7011"]
+
+# Plaid, for the card accounts' merchant names and codes. Each secret is a reference read as
+# key_ref is; each account is its mask with the PocketSmith account it is.
+[plaid]
+client_id_ref = "/path/to/secrets/plaid-client-id"
+secret_ref = "/path/to/secrets/plaid-secret"
+access_token_ref = "/path/to/secrets/plaid-access-token"
+
+[plaid.accounts]
+"0000" = "Card"
