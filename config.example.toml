@@ -41,7 +41,9 @@ tolerance = 1500           # how far a cycle may land from the estimate
 
 # The trips layer. Categories are PocketSmith category titles.
 [trips]
-places = ["HOMETOWN", "HOME TOWN"]   # home places, as named in merchant names and payees
+places = ["HOMETOWN", "HOME TOWN"]   # home places, as named in merchant names, payees and event locations
+home_since = "2025-01-01"            # the home start: nothing before it is settled and no trip is inferred
+home_airports = ["HMT"]              # home's airports: a flight from one leaves home, a flight to one returns
 everywhere = ["GRAB"]                # always everywhere merchants, as word prefixes of the merchant
 
 [trips.big]                          # each kind's Big subcategory
@@ -71,3 +73,12 @@ access_token_ref = "/path/to/secrets/plaid-access-token"
 
 [plaid.accounts]
 "0000" = "Card"
+
+# Google Calendar, for flights and stays. The OAuth client's id and secret are references read
+# as key_ref is; categorize auth writes the token file, owner-only, and runs rewrite it when they
+# refresh the token.
+[calendar]
+id = "someone@example.com"
+client_id_ref = "/path/to/secrets/google-client-id"
+client_secret_ref = "/path/to/secrets/google-client-secret"
+token_ref = "/path/to/secrets/calendar-token.json"

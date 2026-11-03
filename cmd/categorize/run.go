@@ -109,6 +109,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	hints := list.Hints(inferred, written)
 	list, listing := list.Update(trips.Trips(inferred), written)
 	pl := trips.Placer{Settings: s.trips, List: list, Written: written, Seen: placed.Seen, Origins: origins, Corrected: corrected(plan), From: start}.Place(card)
 	plan.Place(pl.Changes)
@@ -172,7 +173,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		Titles: s.titles, Transactions: byID,
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
-		TripsAdded: listed.Added, TripVersions: trips.Without(pl.Versions, trips.Names(listing.Added)),
+		TripsAdded: withEvidence(listed.Added, inferred), TripVersions: trips.Without(pl.Versions, trips.Names(listing.Added)), Hints: hints,
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)

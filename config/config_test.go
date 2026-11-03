@@ -248,6 +248,8 @@ func TestJudgedPathIsUnderHome(t *testing.T) {
 const tripsConfig = `
 [trips]
 places = ["HOMETOWN"]
+home_since = "2025-01-01"
+home_airports = ["HMT"]
 everywhere = ["GRAB"]
 
 [trips.big]
@@ -269,6 +271,12 @@ access_token_ref = "/s/token"
 
 [plaid.accounts]
 "1111" = "Card"
+
+[calendar]
+id = "someone@example.com"
+client_id_ref = "/s/google-id"
+client_secret_ref = "/s/google-secret"
+token_ref = "/s/calendar-token.json"
 `
 
 var tripCats = []ledger.Category{{ID: 11, Title: "Trip Transport"}, {ID: 12, Title: "Trip Lodging"}, {ID: 13, Title: "Trip Food"},
@@ -296,6 +304,12 @@ func TestTripSettingsResolvesTitlesAndDefaultsTheCodes(t *testing.T) {
 	}
 	if p := c.Plaid; p.ClientIDRef != "/s/id" || p.SecretRef != "/s/secret" || p.AccessTokenRef != "/s/token" || p.Accounts["1111"] != "Card" {
 		t.Errorf("plaid = %+v", p)
+	}
+	if h := s.Home; !h.Since.Equal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) || !slices.Equal(h.Airports, []string{"HMT"}) {
+		t.Errorf("home = %+v", h)
+	}
+	if want := (Calendar{ID: "someone@example.com", ClientIDRef: "/s/google-id", ClientSecretRef: "/s/google-secret", TokenRef: "/s/calendar-token.json"}); c.Calendar != want {
+		t.Errorf("calendar = %+v, want %+v", c.Calendar, want)
 	}
 }
 
@@ -341,19 +355,21 @@ func TestTripSettingsNamesWhatIsMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("TripSettings accepted a config without them")
 	}
-	for _, f := range []string{"trips.places", "trips.big.transport", "trips.big.lodging", "trips.big.food", "trips.big.discretionary", "trips.big.cash",
-		"plaid.client_id_ref", "plaid.secret_ref", "plaid.access_token_ref", "plaid.accounts"} {
+	for _, f := range []string{"trips.places", "trips.home_since", "trips.home_airports", "trips.big.transport", "trips.big.lodging", "trips.big.food", "trips.big.discretionary", "trips.big.cash",
+		"plaid.client_id_ref", "plaid.secret_ref", "plaid.access_token_ref", "plaid.accounts",
+		"calendar.id", "calendar.client_id_ref", "calendar.client_secret_ref", "calendar.token_ref"} {
 		if !strings.Contains(err.Error(), f) {
 			t.Errorf("error %q doesn't name %s", err, f)
 		}
 	}
 }
 
-func TestTripSettingsRejectsUnknownTitlesAndBadCodes(t *testing.T) {
+func TestTripSettingsRejectsUnknownTitlesBadCodesAndABadHomeStart(t *testing.T) {
 	for name, content := range map[string]string{
-		"unknown big":  strings.Replace(tripsConfig, `"Trip Food"`, `"Nope"`, 1),
-		"unknown home": strings.Replace(tripsConfig, `"Taxi"`, `"Nope"`, 1),
-		"bad code":     tripsConfig + "\n[trips.codes]\ntransport = [\"x\"]\n",
+		"unknown big":    strings.Replace(tripsConfig, `"Trip Food"`, `"Nope"`, 1),
+		"unknown home":   strings.Replace(tripsConfig, `"Taxi"`, `"Nope"`, 1),
+		"bad code":       tripsConfig + "\n[trips.codes]\ntransport = [\"x\"]\n",
+		"bad home start": strings.Replace(tripsConfig, `"2025-01-01"`, `"2025-13-01"`, 1),
 	} {
 		c, err := Load(write(t, "config.toml", full+content, 0o600))
 		if err != nil {

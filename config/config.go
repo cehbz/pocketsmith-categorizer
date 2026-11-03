@@ -35,6 +35,7 @@ type Config struct {
 	Income     Income     `toml:"income"`
 	Trips      Trips      `toml:"trips"`
 	Plaid      Plaid      `toml:"plaid"`
+	Calendar   Calendar   `toml:"calendar"`
 }
 
 // Categories are the PocketSmith category IDs for each kind of service.
@@ -241,11 +242,13 @@ func JudgedPath(home string) string {
 
 // Trips is the trips layer's configuration, naming PocketSmith categories by title.
 type Trips struct {
-	Places     []string   `toml:"places"`     // home places, as named in merchant names and payees
-	Everywhere []string   `toml:"everywhere"` // merchants always everywhere merchants (Grab), as word prefixes of the merchant
-	Big        TripTitles `toml:"big"`        // each kind's Big subcategory
-	Home       HomeKinds  `toml:"home"`       // home categories with a kind, for charges without a code
-	Codes      *Codes     `toml:"codes"`      // merchant category codes by kind; the defaults when absent
+	Places       []string   `toml:"places"`        // home places, as named in merchant names, payees and event locations
+	HomeSince    string     `toml:"home_since"`    // the home start, YYYY-MM-DD: nothing before it is settled
+	HomeAirports []string   `toml:"home_airports"` // home's airports, as IATA codes
+	Everywhere   []string   `toml:"everywhere"`    // merchants always everywhere merchants (Grab), as word prefixes of the merchant
+	Big          TripTitles `toml:"big"`           // each kind's Big subcategory
+	Home         HomeKinds  `toml:"home"`          // home categories with a kind, for charges without a code
+	Codes        *Codes     `toml:"codes"`         // merchant category codes by kind; the defaults when absent
 }
 
 // TripTitles names each kind's Big subcategory.
@@ -283,6 +286,29 @@ type Plaid struct {
 	Accounts       map[string]string `toml:"accounts"`
 }
 
+// Calendar is the Google calendar the trips layer reads: its id, references to the OAuth
+// client's id and secret, read as key_ref is, and the token file categorize auth writes and
+// runs rewrite when they refresh it.
+type Calendar struct {
+	ID              string `toml:"id"`
+	ClientIDRef     string `toml:"client_id_ref"`
+	ClientSecretRef string `toml:"client_secret_ref"`
+	TokenRef        string `toml:"token_ref"`
+}
+
+// Missing names the calendar settings left out.
+func (c Calendar) Missing() []string {
+	var out []string
+	for _, f := range []struct{ value, name string }{
+		{c.ID, "calendar.id"}, {c.ClientIDRef, "calendar.client_id_ref"}, {c.ClientSecretRef, "calendar.client_secret_ref"}, {c.TokenRef, "calendar.token_ref"},
+	} {
+		if f.value == "" {
+			out = append(out, f.name)
+		}
+	}
+	return out
+}
+
 // TripSettings resolves the trips settings, naming categories by title against cats; start
 // is the attention start, and cash is withdrawn from the income check's account.
 func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Settings, error) {
@@ -294,6 +320,8 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 	}
 	tr, pl := c.Trips, c.Plaid
 	need(len(tr.Places) > 0, "trips.places")
+	need(tr.HomeSince != "", "trips.home_since")
+	need(len(tr.HomeAirports) > 0, "trips.home_airports")
 	need(tr.Big.Transport != "", "trips.big.transport")
 	need(tr.Big.Lodging != "", "trips.big.lodging")
 	need(tr.Big.Food != "", "trips.big.food")
@@ -303,8 +331,13 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 	need(pl.SecretRef != "", "plaid.secret_ref")
 	need(pl.AccessTokenRef != "", "plaid.access_token_ref")
 	need(len(pl.Accounts) > 0, "plaid.accounts")
+	missing = append(missing, c.Calendar.Missing()...)
 	if len(missing) > 0 {
 		return trips.Settings{}, fmt.Errorf("config: missing %s", strings.Join(missing, ", "))
+	}
+	since, err := day.Parse(tr.HomeSince)
+	if err != nil {
+		return trips.Settings{}, fmt.Errorf("config: trips.home_since: %w", err)
 	}
 	ids := map[string]ledger.CategoryID{}
 	for _, cat := range cats {
@@ -349,7 +382,7 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 			*f.dst = rs
 		}
 	}
-	return trips.Settings{Kinds: kinds, Home: trips.Home{Places: tr.Places}, Everywhere: tr.Everywhere, Start: start, CashAccount: c.Income.Account}, nil
+	return trips.Settings{Kinds: kinds, Home: trips.Home{Places: tr.Places, Airports: tr.HomeAirports, Since: since}, Everywhere: tr.Everywhere, Start: start, CashAccount: c.Income.Account}, nil
 }
 
 // TripsPath is the trip list the user edits, under home.

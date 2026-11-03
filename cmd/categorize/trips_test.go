@@ -104,9 +104,21 @@ func (c *fakeCard) Records(_ context.Context, from, to time.Time) ([]trips.Recor
 	return c.recs, nil
 }
 
+// fakeCalendar is a calendar that records the window it was asked for.
+type fakeCalendar struct {
+	events   []trips.Event
+	err      error
+	from, to time.Time
+}
+
+func (c *fakeCalendar) Events(_ context.Context, from, to time.Time) ([]trips.Event, error) {
+	c.from, c.to = from, to
+	return c.events, c.err
+}
+
 func TestInferTripsReadsTheCardFromJustBeforeTheLedgerRead(t *testing.T) {
 	card := &fakeCard{recs: []trips.Record{{Account: "Card", Date: mustParse("2026-03-11"), Amount: 12.5, Name: "CAFE", Merchant: "Cafe", Code: "5812"}}}
-	s := &session{today: mustParse("2026-11-03"), card: card, accounts: []string{"Card"}}
+	s := &session{today: mustParse("2026-11-03"), card: card, accounts: []string{"Card"}, calendar: &fakeCalendar{}}
 	txs := []ledger.Transaction{{ID: 1, Date: mustParse("2026-03-10"), Amount: -12.5, Payee: "CAFE", Account: ledger.Account{Name: "Card"}}}
 	got, _, err := inferTrips(context.Background(), s, txs, decide.Plan{}, mustParse("2026-01-01"), nil)
 	if err != nil {
@@ -117,6 +129,34 @@ func TestInferTripsReadsTheCardFromJustBeforeTheLedgerRead(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Details.Merchant != "Cafe" {
 		t.Errorf("trip transactions = %+v; want the card's charge with its details", got)
+	}
+}
+
+func TestInferTripsInfersFromTheCalendarsEventsOverTheRead(t *testing.T) {
+	cal := &fakeCalendar{events: []trips.Event{
+		{Title: "HMT-FAR ZZ101", Start: mustParse("2026-03-10"), End: mustParse("2026-03-10")},
+		{Title: "Stay at Inn Farcity", Location: "Farcity", Start: mustParse("2026-03-10"), End: mustParse("2026-03-12")},
+		{Title: "FAR-HMT ZZ102", Start: mustParse("2026-03-12"), End: mustParse("2026-03-13")},
+	}}
+	s := &session{today: mustParse("2026-11-03"), card: &fakeCard{}, calendar: cal,
+		trips: trips.Settings{Kinds: trips.Kinds{Codes: trips.DefaultCodes()}, Home: trips.Home{Places: []string{"HOMETOWN"}, Airports: []string{"HMT"}}}}
+	_, got, err := inferTrips(context.Background(), s, nil, decide.Plan{}, mustParse("2026-01-01"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cal.from.Equal(mustParse("2026-01-01")) || !cal.to.Equal(s.today) {
+		t.Errorf("calendar read %v..%v; want 2026-01-01..2026-11-03", cal.from, cal.to)
+	}
+	want := trips.Trip{Name: "trip-2026-03-10", From: mustParse("2026-03-10"), To: mustParse("2026-03-13")}
+	if len(got) != 1 || got[0].Trip != want || len(got[0].Evidence) != 5 {
+		t.Errorf("inferred %+v; want %+v from a flight out, three days' stay and a flight back", got, want)
+	}
+}
+
+func TestACalendarFailureFailsInference(t *testing.T) {
+	s := &session{today: mustParse("2026-11-03"), card: &fakeCard{}, calendar: &fakeCalendar{err: errors.New("calendar down")}}
+	if _, _, err := inferTrips(context.Background(), s, nil, decide.Plan{}, mustParse("2026-01-01"), nil); err == nil || err.Error() != "calendar down" {
+		t.Errorf("err = %v, want the calendar's", err)
 	}
 }
 

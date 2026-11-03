@@ -107,7 +107,7 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 	}}
 	start := mustParse("2026-10-01")
 	big := map[trips.Kind]ledger.CategoryID{trips.Transport: 101, trips.Lodging: 102, trips.Food: 103, trips.Discretionary: 104, trips.Cash: 105}
-	s := &session{ledger: l, titles: map[ledger.CategoryID]string{}, today: mustParse("2026-11-03"), card: c, accounts: []string{"Card"},
+	s := &session{ledger: l, titles: map[ledger.CategoryID]string{}, today: mustParse("2026-11-03"), card: c, accounts: []string{"Card"}, calendar: &fakeCalendar{},
 		attention: attention.Settings{Start: start, Size: attention.Size{Absolute: 1e9, SD: 1e3}},
 		trips:     trips.Settings{Kinds: trips.Kinds{Codes: trips.DefaultCodes(), Big: big}, Home: trips.Home{Places: []string{"HOMETOWN"}}, Start: start}}
 	return s, l
@@ -304,5 +304,45 @@ func TestARunLeavesChargesDatedBeforeItsLookbackAsTheyAre(t *testing.T) {
 	}
 	if l.txs[4].State.Category != 102 || l.txs[8].State.Category != 5 {
 		t.Errorf("hotel %+v, flight booked before the lookback %+v; want the hotel placed and the flight left\n%s", l.txs[4].State, l.txs[8].State, out.String())
+	}
+}
+
+func TestARunReportsTheTripsItAddsWithTheirEvidence(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, _ := tripRun(t)
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "trips added (1):\n  trip-2026-10-05 2026-10-05..2026-10-07\n" +
+		"    card: lodging HOTEL FARCITY 2026-10-05..2026-10-07\n" +
+		"    card: new place HOTEL FARCITY 2026-10-05\n" +
+		"    card: new place NOODLES FARCITY 2026-10-06\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("report lacks %q:\n%s", want, out.String())
+	}
+}
+
+func TestATripInferredBeyondOneTheUserEditedIsAHintEveryRunAndTheListStays(t *testing.T) {
+	newRunner, store := runners(t)
+	s, _ := tripRun(t)
+	first(t, newRunner, s)
+	edited := trips.Trip{Name: "trip-farcity", From: mustParse("2026-10-06"), To: mustParse("2026-10-07")}
+	store.list = trips.List{edited}
+	store.saves = 0
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "trips you edited that inference reaches beyond, left as they are (1):\n  trip-farcity 2026-10-06..2026-10-07: inferred 2026-10-05..2026-10-07\n"
+	if !strings.Contains(out.String(), want) || !reflect.DeepEqual(store.list, trips.List{edited}) || store.saves != 0 {
+		t.Errorf("list %v after %d saves; want the hint and the list as the user left it\n%s", store.list, store.saves, out.String())
+	}
+	out.Reset()
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), want) || !reflect.DeepEqual(store.list, trips.List{edited}) || store.saves != 0 {
+		t.Errorf("next run: list %v after %d saves; want the hint again and the list as the user left it\n%s", store.list, store.saves, out.String())
 	}
 }

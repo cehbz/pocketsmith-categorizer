@@ -26,7 +26,7 @@ func TestReplayInfersTripsFromTheStartOfThePeriodAndReportsOnlyThePeriods(t *tes
 		{Account: "Card", Date: mustParse("2025-09-02"), Amount: 6, Name: "GROCER", Merchant: "Grocer", Code: "5411", InStore: true},
 		{Account: "Card", Date: mustParse("2025-10-03"), Amount: 7, Name: "GROCER", Merchant: "Grocer", Code: "5411", InStore: true},
 	}
-	s := &session{today: mustParse("2026-11-03"), card: &fakeCard{recs: recs}, accounts: []string{"Card"},
+	s := &session{today: mustParse("2026-11-03"), card: &fakeCard{recs: recs}, accounts: []string{"Card"}, calendar: &fakeCalendar{},
 		trips: trips.Settings{Kinds: trips.Kinds{Codes: trips.DefaultCodes()}}}
 	got, err := replayTrips(context.Background(), s, all, mustParse("2026-01-01"), nil)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestReplayReportsATripThatBeganBeforeThePeriodWhereItsWarmUpEnded(t *testin
 		}
 		recs = append(recs, trips.Record{Account: "Card", Date: d, Amount: 5, Name: name, Merchant: name, Code: code, InStore: true})
 	}
-	s := &session{today: mustParse("2026-11-03"), card: &fakeCard{recs: recs}, accounts: []string{"Card"},
+	s := &session{today: mustParse("2026-11-03"), card: &fakeCard{recs: recs}, accounts: []string{"Card"}, calendar: &fakeCalendar{},
 		trips: trips.Settings{Kinds: trips.Kinds{Codes: trips.DefaultCodes()}}}
 	got, err := replayTrips(context.Background(), s, all, mustParse("2026-01-01"), nil)
 	if err != nil {

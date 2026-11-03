@@ -1,6 +1,7 @@
 // Command categorize decides PocketSmith categories through the categorizer's layers:
 // "categorize run" applies decisions, "categorize replay" measures rules against the user's
-// categorizations, "categorize undo [run-id]" reverses a run.
+// categorizations, "categorize undo [run-id]" reverses a run, "categorize auth" lets it read
+// the user's calendar.
 package main
 
 import (
@@ -18,7 +19,7 @@ func main() {
 	}
 }
 
-const usage = "usage: categorize run|replay|undo [flags]"
+const usage = "usage: categorize run|replay|undo|auth [flags]"
 
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 {
@@ -31,6 +32,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return replayCmd(ctx, args[1:], out)
 	case "undo":
 		return undoCmd(ctx, args[1:], out)
+	case "auth":
+		return authCmd(ctx, args[1:], out)
 	}
 	return errors.New(usage)
 }

@@ -107,3 +107,21 @@ func TestWithoutDropsTheNamedTrips(t *testing.T) {
 		t.Error("Named or Names is wrong")
 	}
 }
+
+func TestAnInferredTripReachingBeyondAnEditedTripIsAHint(t *testing.T) {
+	asWritten := Trip{Name: "trip-2026-03-01", From: date("2026-03-01"), To: date("2026-03-10")}
+	edited := Trip{Name: "trip-japan", From: date("2026-05-03"), To: date("2026-05-10")} // written as 05-01..05-10
+	byHand := Trip{Name: "trip-farcity", From: date("2026-07-01"), To: date("2026-07-05")}
+	written := []Trip{asWritten, {Name: "trip-2026-05-01", From: date("2026-05-01"), To: date("2026-05-10")}}
+	inferred := []Inferred{
+		{Trip: Trip{Name: "trip-2026-03-01", From: date("2026-03-01"), To: date("2026-03-12")}}, // extends a trip as written: Update's
+		{Trip: Trip{Name: "trip-2026-05-01", From: date("2026-05-01"), To: date("2026-05-10")}}, // reaches before the edited trip
+		{Trip: Trip{Name: "trip-2026-07-02", From: date("2026-07-02"), To: date("2026-07-04")}}, // inside the trip listed by hand
+		{Trip: Trip{Name: "trip-2026-07-04", From: date("2026-07-04"), To: date("2026-07-08")}}, // beyond it
+	}
+	got := List{asWritten, edited, byHand}.Hints(inferred, written)
+	want := []Hint{{Edited: edited, Inferred: inferred[1]}, {Edited: byHand, Inferred: inferred[3]}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Hints = %+v, want %+v", got, want)
+	}
+}

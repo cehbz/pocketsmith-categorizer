@@ -39,8 +39,9 @@ type Run struct {
 	Trials         []learn.Trial
 	Titles         map[ledger.CategoryID]string
 	Transactions   map[int64]ledger.Transaction // by ID, to describe changes
-	TripsAdded     []trips.Trip                 // trips the run added to the list
+	TripsAdded     []trips.Inferred             // trips the run added to the list, with their evidence
 	TripVersions   []trips.Trip                 // listed trips placed under new names or dates
+	Hints          []trips.Hint                 // inferred trips reaching beyond trips the user edited
 }
 
 func title(titles map[ledger.CategoryID]string, id ledger.CategoryID) string {
@@ -67,7 +68,11 @@ func WriteRun(w io.Writer, r Run) error {
 	}
 	p.f("trips added (%d):\n", len(r.TripsAdded))
 	for _, t := range r.TripsAdded {
-		p.f("  %s\n", describeTrip(t))
+		p.inferred("  "+describeTrip(t.Trip), t.Evidence)
+	}
+	p.f("trips you edited that inference reaches beyond, left as they are (%d):\n", len(r.Hints))
+	for _, h := range r.Hints {
+		p.inferred(fmt.Sprintf("  %s: inferred %s..%s", describeTrip(h.Edited), day.Format(h.Inferred.From), day.Format(h.Inferred.To)), h.Inferred.Evidence)
 	}
 	p.f("trips with new names or dates (%d):\n", len(r.TripVersions))
 	for _, t := range r.TripVersions {
@@ -131,7 +136,7 @@ type Replay struct {
 	Titles    map[ledger.CategoryID]string
 	Attention *attention.Tally // what attention would have flagged; nil when not replayed
 	Tolerance float64          // income mismatch tolerance
-	Trips     []trips.Trip     // the trips inference finds over the period
+	Trips     []trips.Inferred // the trips inference finds over the period, with their evidence
 }
 
 // WriteReplay prints a replay's report.
@@ -151,7 +156,7 @@ func WriteReplay(w io.Writer, r Replay) error {
 	}
 	p.f("trips inferred (%d):\n", len(r.Trips))
 	for _, t := range r.Trips {
-		p.f("  %s\n", describeTrip(t))
+		p.inferred("  "+describeTrip(t.Trip), t.Evidence)
 	}
 	if a := r.Attention; a != nil {
 		all, without := make([]int, len(a.Weeks)), make([]int, len(a.Weeks))
@@ -218,6 +223,35 @@ func describeTrip(t trips.Trip) string {
 		s += " (visa run)"
 	}
 	return s
+}
+
+// inferred prints a trip's line and its evidence, in date order, by source, calendar first:
+// each sign and what showed it, with its first and last days.
+func (p *printer) inferred(line string, evidence []trips.Evidence) {
+	p.f("%s\n", line)
+	type key struct {
+		source trips.Source
+		sign   trips.Sign
+		what   string
+	}
+	days := map[key][]time.Time{}
+	var keys []key
+	for _, e := range evidence {
+		k := key{e.Source, e.Sign, e.What}
+		if days[k] == nil {
+			keys = append(keys, k)
+		}
+		days[k] = append(days[k], e.Day)
+	}
+	slices.SortStableFunc(keys, func(a, b key) int { return cmp.Compare(a.source, b.source) })
+	for _, k := range keys {
+		ds := days[k]
+		when := day.Format(ds[0])
+		if last := ds[len(ds)-1]; !last.Equal(ds[0]) {
+			when += ".." + day.Format(last)
+		}
+		p.f("    %s: %s %s %s\n", k.source, k.sign, k.what, when)
+	}
 }
 
 // placedPerTrip counts the trips layer's changes by the trip they name.

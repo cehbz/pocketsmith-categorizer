@@ -160,7 +160,29 @@ func reportTrip(name string, visaRun bool) trips.Trip {
 	return trips.Trip{Name: name, From: from, To: to, VisaRun: visaRun}
 }
 
-func TestWriteRunListsTrips(t *testing.T) {
+// reportInferred is reportTrip inferred from a flight out, a stay, a new place charged on two
+// days and a flight back.
+func reportInferred(name string, visaRun bool) trips.Inferred {
+	on := func(d string, source trips.Source, sign trips.Sign, what string) trips.Evidence {
+		dd, _ := day.Parse(d)
+		return trips.Evidence{Day: dd, Source: source, Sign: sign, What: what}
+	}
+	return trips.Inferred{Trip: reportTrip(name, visaRun), Evidence: []trips.Evidence{
+		on("2026-03-10", trips.FromCalendar, trips.FlightOut, "HMT-FAR ZZ101"),
+		on("2026-03-10", trips.FromCalendar, trips.Stay, "Stay at Inn Farcity"),
+		on("2026-03-11", trips.FromCard, trips.NewPlace, "NOODLES FARCITY"),
+		on("2026-03-11", trips.FromCalendar, trips.Stay, "Stay at Inn Farcity"),
+		on("2026-03-13", trips.FromCard, trips.NewPlace, "NOODLES FARCITY"),
+		on("2026-03-14", trips.FromCalendar, trips.FlightBack, "FAR-HMT ZZ102"),
+	}}
+}
+
+const reportEvidence = "    calendar: flight out HMT-FAR ZZ101 2026-03-10\n" +
+	"    calendar: stay Stay at Inn Farcity 2026-03-10..2026-03-11\n" +
+	"    calendar: flight back FAR-HMT ZZ102 2026-03-14\n" +
+	"    card: new place NOODLES FARCITY 2026-03-11..2026-03-13\n"
+
+func TestWriteRunListsTripsWithTheirEvidenceAndHints(t *testing.T) {
 	r := Run{RunID: "R", Applied: 3, Titles: titles, Transactions: map[int64]ledger.Transaction{},
 		Changes: []categorize.Change{
 			{Charge: 1, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10"},
@@ -168,7 +190,8 @@ func TestWriteRunListsTrips(t *testing.T) {
 			{Charge: 3, After: ledger.State{Category: 5}, Source: "trips: trip-booking"},
 			{Charge: 4, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10"},
 		},
-		TripsAdded: []trips.Trip{reportTrip("trip-2026-03-10", true)}, TripVersions: []trips.Trip{reportTrip("trip-japan", false)},
+		TripsAdded: []trips.Inferred{reportInferred("trip-2026-03-10", true)}, TripVersions: []trips.Trip{reportTrip("trip-japan", false)},
+		Hints: []trips.Hint{{Edited: reportTrip("trip-farcity", false), Inferred: reportInferred("trip-2026-03-10", false)}},
 	}
 	var b strings.Builder
 	if err := WriteRun(&b, r); err != nil {
@@ -176,7 +199,8 @@ func TestWriteRunListsTrips(t *testing.T) {
 	}
 	out := b.String()
 	for _, want := range []string{
-		"trips added (1):\n  trip-2026-03-10 2026-03-10..2026-03-14 (visa run)\n",
+		"trips added (1):\n  trip-2026-03-10 2026-03-10..2026-03-14 (visa run)\n" + reportEvidence,
+		"trips you edited that inference reaches beyond, left as they are (1):\n  trip-farcity 2026-03-10..2026-03-14: inferred 2026-03-10..2026-03-14\n" + reportEvidence,
 		"trips with new names or dates (1):\n  trip-japan 2026-03-10..2026-03-14\n",
 		"placed on trips (2):\n  trip-2026-03-10: 2\n  trip-booking: 1\n",
 	} {
@@ -186,12 +210,12 @@ func TestWriteRunListsTrips(t *testing.T) {
 	}
 }
 
-func TestWriteReplayListsInferredTrips(t *testing.T) {
+func TestWriteReplayListsInferredTripsWithTheirEvidence(t *testing.T) {
 	var b strings.Builder
-	if err := WriteReplay(&b, Replay{Trips: []trips.Trip{reportTrip("trip-2026-03-10", false)}}); err != nil {
+	if err := WriteReplay(&b, Replay{Trips: []trips.Inferred{reportInferred("trip-2026-03-10", false)}}); err != nil {
 		t.Fatal(err)
 	}
-	if want := "trips inferred (1):\n  trip-2026-03-10 2026-03-10..2026-03-14\n"; !strings.Contains(b.String(), want) {
+	if want := "trips inferred (1):\n  trip-2026-03-10 2026-03-10..2026-03-14\n" + reportEvidence; !strings.Contains(b.String(), want) {
 		t.Errorf("report lacks %q:\n%s", want, b.String())
 	}
 }

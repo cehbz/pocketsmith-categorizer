@@ -94,17 +94,25 @@ func undoListing(store trips.Store, c trips.Listing) error {
 	return store.Save(list, written)
 }
 
-// inferTrips reads the card's records for txs, the ledger read from from, and returns the
-// transactions the trips layer sees once plan is applied and the trips inference finds in
-// them against the listed trips. Inference has no warm-up of its own: it counts places as new
-// from inferWarmup days into the read.
+// inferTrips reads the card's records and the calendar's events for txs, the ledger read from
+// from, and returns the transactions the trips layer sees once plan is applied and the trips
+// inference finds in them and the calendar's evidence against the listed trips. Inference has
+// no warm-up of its own: it counts places as new from inferWarmup days into the read.
 func inferTrips(ctx context.Context, s *session, txs []ledger.Transaction, plan decide.Plan, from time.Time, listed trips.List) ([]trips.Transaction, []trips.Inferred, error) {
 	recs, err := s.card.Records(ctx, from.AddDate(0, 0, -recordLead), s.today)
 	if err != nil {
 		return nil, nil, err
 	}
+	events, err := s.calendar.Events(ctx, from, s.today)
+	if err != nil {
+		return nil, nil, err
+	}
+	var calendar []trips.Evidence
+	for _, e := range events {
+		calendar = append(calendar, e.Evidence(s.trips.Home)...)
+	}
 	card := tripTransactions(txs, recs, plan, s.accounts, s.trips)
-	return card, trips.Infer(card, nil, listed, s.trips, from.AddDate(0, 0, inferWarmup)), nil
+	return card, trips.Infer(card, calendar, listed, s.trips, from.AddDate(0, 0, inferWarmup)), nil
 }
 
 // listTrips writes what a run changed in the trip list once every write of the run landed:
@@ -122,4 +130,15 @@ func listTrips(applyErr error, store trips.Store, j journal.Store, runID string,
 		return trips.Listing{}, err
 	}
 	return c, nil
+}
+
+// withEvidence are the trips added, each with the evidence its inference rests on.
+func withEvidence(added []trips.Trip, inferred []trips.Inferred) []trips.Inferred {
+	var out []trips.Inferred
+	for _, t := range added {
+		if i := slices.IndexFunc(inferred, func(in trips.Inferred) bool { return in.Same(t) }); i >= 0 {
+			out = append(out, inferred[i])
+		}
+	}
+	return out
 }

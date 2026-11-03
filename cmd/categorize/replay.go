@@ -69,7 +69,7 @@ func replayCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 	tally := attention.Replay(all, from, s.today, s.attention, decideRule)
 	return report.WriteReplay(out, report.Replay{From: from, To: s.today, Users: users, Stats: s.rules.Replay(txs), Titles: s.titles,
-		Attention: &tally, Tolerance: s.attention.Income.Tolerance, Trips: trips.Trips(inferred)})
+		Attention: &tally, Tolerance: s.attention.Income.Tolerance, Trips: inferred})
 }
 
 // replayLead is the days of history replay reads before the period.
