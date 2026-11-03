@@ -64,9 +64,9 @@ type Placing struct {
 type placing struct {
 	Placer
 	Placing
-	merchants *Merchants
-	names     map[string]bool        // trips' names, deleted trips' included
-	final     map[int64]ledger.State // each transaction's state once placed
+	haunts Haunts                 // the places against the list
+	names  map[string]bool        // trips' names, deleted trips' included
+	final  map[int64]ledger.State // each transaction's state once placed
 }
 
 // Place places each charge in a trip's dates and each booking, then each refund. A
@@ -75,14 +75,14 @@ type placing struct {
 // leaves them as they are.
 func (p Placer) Place(txs []Transaction) Placing {
 	w := &placing{Placer: p, Placing: Placing{Reasons: map[int64][]string{}, Keys: map[int64]string{}},
-		merchants: NewMerchants(txs, p.List, p.Settings), names: map[string]bool{}, final: map[int64]ledger.State{}}
+		haunts: NewPlaces(txs, p.Settings).Haunts(p.List), names: map[string]bool{}, final: map[int64]ledger.State{}}
 	for _, t := range append(slices.Clone([]Trip(p.List)), p.Written...) {
 		w.names[t.Name] = true
 	}
 	homeActive := map[string]bool{}
 	for _, t := range txs {
 		w.final[t.ID] = t.Home
-		if trip, ok := p.List.At(t.Date); ok && w.merchants.HomeActivity(t) {
+		if trip, ok := p.List.At(t.Date); ok && w.haunts.Home(t) {
 			homeActive[trip.Name] = true
 		}
 	}
@@ -115,10 +115,10 @@ func (p Placer) Place(txs []Transaction) Placing {
 	return w.Placing
 }
 
-// charge places a charge in trip's dates. A home merchant's or a recurring charge stays; an
-// everywhere merchant's is in doubt while someone was home; any other is a trip charge, put
-// in its kind's Big subcategory. A charge the trips layer doesn't own is placed once per
-// version, so the user's later correction stands.
+// charge places a charge in trip's dates. A home charge stays; an everywhere charge is in
+// doubt while someone was home; any other is a trip charge, put in its kind's Big
+// subcategory. A charge the trips layer doesn't own is placed once per version, so the
+// user's later correction stands.
 func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	key := PlacedPrefix(t.ID) + trip.Version()
 	first := !w.Seen(key)
@@ -126,11 +126,11 @@ func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 		return
 	}
 	flagged := first && !trip.To.Before(w.Settings.Start)
-	switch class := w.merchants.Class(t); {
-	case class == HomeMerchant || w.merchants.Recurring(t):
+	switch class := w.haunts.Class(t); {
+	case class == HomeCharge:
 		w.revert(t)
 		return
-	case class == EverywhereMerchant && homeActive:
+	case class == EverywhereCharge && homeActive:
 		reverted := w.revert(t)
 		w.Keys[t.ID] = key
 		if (flagged || reverted) && !trip.To.Before(w.Settings.Start) {

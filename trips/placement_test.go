@@ -9,14 +9,30 @@ import (
 )
 
 var (
-	settings = Settings{Kinds: kinds, Home: Home{Places: []string{"HOME TOWN", "HOMETOWN"}}, Start: date("2026-10-26"), CashAccount: "Checking"}
+	settings = Settings{Kinds: kinds, Home: Home{Places: []string{"HOME TOWN", "HOMETOWN"}}, Everywhere: []string{"GRAB"}, Start: date("2026-10-26"), CashAccount: "Checking"}
 	abroad   = Trip{Name: "trip-abroad", From: date("2026-10-05"), To: date("2026-10-30")}
 	past     = Trip{Name: "trip-past", From: date("2026-03-01"), To: date("2026-03-10")}
 )
 
-// txn is a card transaction from merchant with code, in state s as the other layers leave it.
+// txn is a card transaction paid in person to merchant with code, in state s as the other
+// layers leave it.
 func txn(id int64, d string, amount float64, merchant, code string, s ledger.State) Transaction {
-	return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: amount, Payee: merchant, State: s}, Details: Details{Merchant: merchant, Code: code}, Home: s}
+	return Transaction{Transaction: ledger.Transaction{ID: id, Date: date(d), Amount: amount, Payee: merchant, State: s}, Details: Details{Merchant: merchant, Code: code, InStore: true}, Home: s}
+}
+
+// online is a card transaction paid online to merchant with code, in state s.
+func online(id int64, d string, amount float64, merchant, code string, s ledger.State) Transaction {
+	t := txn(id, d, amount, merchant, code, s)
+	t.Details.InStore = false
+	return t
+}
+
+// homeCafe is a café settled at home: charged in three months outside trips, on trip-past
+// and, as ID 3, on trip-abroad.
+func homeCafe() []Transaction {
+	return []Transaction{txn(20, "2026-07-02", -4, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(21, "2026-08-02", -5, "HOMECAFE", "5812", ledger.State{Category: 5}),
+		txn(22, "2026-09-02", -6, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(23, "2026-03-05", -7, "HOMECAFE", "5812", ledger.State{Category: 5}),
+		txn(3, "2026-10-11", -8, "HOMECAFE", "5812", ledger.State{Category: 5})}
 }
 
 func seen(keys ...string) func(string) bool {
@@ -56,7 +72,7 @@ func unchanged(t *testing.T, p Placing, id int64) {
 	}
 }
 
-func TestATripMerchantsChargeGoesToItsKindsBigSubcategory(t *testing.T) {
+func TestAChargeAtANewPlaceOnATripGoesToItsKindsBigSubcategory(t *testing.T) {
 	p := placer(abroad).Place([]Transaction{txn(1, "2026-10-10", -100, "HOTEL", "7011", ledger.State{Category: 7, NeedsReview: true})})
 	wantState(t, p, 1, ledger.State{Category: 102, NeedsReview: true, Labels: []string{Label, "trip-abroad"}})
 	if c, _ := placed(p, 1); c.Source != "trips: trip-abroad" {
@@ -77,7 +93,7 @@ func TestAVisaRunAddsItsLabel(t *testing.T) {
 	wantState(t, p, 1, ledger.State{Category: 102, Labels: []string{Label, "trip-abroad", VisaRun}})
 }
 
-func TestHomeRecurringAndTransferChargesStay(t *testing.T) {
+func TestAChargeAtAPlaceNamingHomeARecurringChargeAndATransferStay(t *testing.T) {
 	transfer := txn(6, "2026-10-10", -500, "WISE", "", ledger.State{Category: 8})
 	transfer.Transfer = true
 	txs := []Transaction{
@@ -92,57 +108,71 @@ func TestHomeRecurringAndTransferChargesStay(t *testing.T) {
 	pl := placer(abroad, past)
 	pl.Origins = map[int64]ledger.State{4: {Category: 9}, 7: {Category: 5}}
 	p := pl.Place(txs)
-	for _, id := range []int64{1, 6} {
-		notPlaced(t, p, id)
-		if len(p.Reasons[id]) > 0 {
-			t.Errorf("transaction %d flagged %v", id, p.Reasons[id])
-		}
-	}
+	notPlaced(t, p, 1)
+	notPlaced(t, p, 6)
 	wantState(t, p, 4, ledger.State{Category: 9})
 	wantState(t, p, 7, ledger.State{Category: 5})
-}
-
-// chainCharges are a chain store's and Grab's charges at home, on the past trip and, as IDs 1
-// and 2, abroad.
-func chainCharges() []Transaction {
-	return []Transaction{
-		txn(10, "2026-09-01", -3, "SEVEN", "5499", ledger.State{Category: 7}), txn(11, "2026-03-05", -3, "SEVEN", "5499", ledger.State{Category: 7}),
-		txn(1, "2026-10-10", -3, "SEVEN", "5499", ledger.State{Category: 7}),
-		txn(12, "2026-09-01", -2, "GRAB", "4121", ledger.State{Category: 6}), txn(13, "2026-03-05", -2, "GRAB", "4121", ledger.State{Category: 6}),
-		txn(2, "2026-10-10", -2, "GRAB", "4121", ledger.State{Category: 6}),
+	if len(p.Reasons) != 0 {
+		t.Errorf("reasons = %v, want none", p.Reasons)
 	}
 }
 
-func TestEverywhereAndGrabChargesAreTripChargesWhenNoOneWasHome(t *testing.T) {
-	p := placer(abroad, past).Place(chainCharges())
+func TestARecurringChargeOnATripNobodyWasHomeForStays(t *testing.T) {
+	p := placer(abroad).Place([]Transaction{
+		txn(1, "2026-08-31", -9.99, "STREAM", "5815", ledger.State{Category: 9}),
+		txn(2, "2026-09-30", -9.99, "STREAM", "5815", ledger.State{Category: 9}),
+		txn(3, "2026-10-30", -9.99, "STREAM", "5815", ledger.State{Category: 9}),
+	})
+	notPlaced(t, p, 3)
+	if len(p.Reasons) != 0 {
+		t.Errorf("reasons = %v, want none", p.Reasons)
+	}
+}
+
+func TestAChargeAtASettledPlaceOnATripStays(t *testing.T) {
+	placedEarlier := txn(4, "2026-10-12", -9, "HOMECAFE", "5812", ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})
+	pl := placer(abroad, past)
+	pl.Origins = map[int64]ledger.State{4: {Category: 5}}
+	p := pl.Place(append(homeCafe(), placedEarlier))
+	notPlaced(t, p, 3)
+	wantState(t, p, 4, ledger.State{Category: 5})
+	if len(p.Reasons) != 0 {
+		t.Errorf("reasons = %v, want none", p.Reasons)
+	}
+}
+
+func TestAPlaceSettledOnlyByAListedTripsDaysIsntSettledAndItsChargeOnATripIsATripCharge(t *testing.T) {
+	// Charged in four months, one of them only on trip-past: two months outside the list's
+	// trips don't settle it.
+	p := placer(abroad, past).Place([]Transaction{
+		txn(1, "2026-08-02", -4, "CAFE", "5812", ledger.State{Category: 5}), txn(2, "2026-09-02", -5, "CAFE", "5812", ledger.State{Category: 5}),
+		txn(3, "2026-03-05", -6, "CAFE", "5812", ledger.State{Category: 5}), txn(4, "2026-10-11", -7, "CAFE", "5812", ledger.State{Category: 5}),
+	})
+	wantState(t, p, 4, ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})
+}
+
+// everywhereCharges are an online shop's and Grab's charges at home and, as IDs 1 and 2,
+// abroad.
+func everywhereCharges() []Transaction {
+	return []Transaction{
+		online(10, "2026-09-01", -3, "MART ONLINE", "5499", ledger.State{Category: 7}), online(1, "2026-10-10", -3, "MART ONLINE", "5499", ledger.State{Category: 7}),
+		txn(12, "2026-09-01", -2, "GRAB", "4121", ledger.State{Category: 6}), txn(2, "2026-10-10", -2, "GRAB", "4121", ledger.State{Category: 6}),
+	}
+}
+
+func TestEverywhereChargesAreTripChargesWhenNoOneWasHome(t *testing.T) {
+	p := placer(abroad).Place(everywhereCharges())
 	wantState(t, p, 1, ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})
 	wantState(t, p, 2, ledger.State{Category: 101, Labels: []string{Label, "trip-abroad"}})
 }
 
-func TestEverywhereAndGrabChargesAreInDoubtWhenSomeoneWasHome(t *testing.T) {
-	txs := append(chainCharges(),
-		txn(14, "2026-09-02", -4, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(3, "2026-10-11", -4, "HOMECAFE", "5812", ledger.State{Category: 5}))
-	p := placer(abroad, past).Place(txs)
+func TestEverywhereChargesAreInDoubtWhenSomeoneWasHome(t *testing.T) {
+	p := placer(abroad, past).Place(append(everywhereCharges(), homeCafe()...))
 	for _, id := range []int64{1, 2, 3} {
 		unchanged(t, p, id)
 	}
 	if !slices.Equal(p.Reasons[1], []string{Unsure}) || !slices.Equal(p.Reasons[2], []string{Unsure}) || len(p.Reasons[3]) > 0 {
-		t.Errorf("reasons = %v; want the chain's and Grab's unsure, the home cafe's none", p.Reasons)
-	}
-}
-
-func TestAConfiguredEverywhereMerchantWithOnlyHomeHistoryIsInDoubtOrATripCharge(t *testing.T) {
-	grab := []Transaction{txn(10, "2026-09-01", -2, "GRAB", "4121", ledger.State{Category: 6}), txn(1, "2026-10-10", -2, "GRAB", "4121", ledger.State{Category: 6})}
-	pl := placer(abroad)
-	pl.Settings.Everywhere = []string{"GRAB"}
-	p := pl.Place(grab)
-	wantState(t, p, 1, ledger.State{Category: 101, Labels: []string{Label, "trip-abroad"}})
-
-	home := append(grab, txn(11, "2026-09-02", -4, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(2, "2026-10-11", -4, "HOMECAFE", "5812", ledger.State{Category: 5}))
-	p = pl.Place(home)
-	unchanged(t, p, 1)
-	if !slices.Equal(p.Reasons[1], []string{Unsure}) {
-		t.Errorf("grab reasons = %v, want unsure while someone was home", p.Reasons[1])
+		t.Errorf("reasons = %v; want the shop's and Grab's unsure, the home cafe's none", p.Reasons)
 	}
 }
 
@@ -272,17 +302,16 @@ func TestATravelCodeOutsideEveryTripIsABooking(t *testing.T) {
 func TestABackFilledTripAddsNoFlagsAndKeepsTheReviewFlag(t *testing.T) {
 	ruled := txn(3, "2026-03-07", -10, "TEMPLE", "5999", ledger.State{Category: 7, NeedsReview: true})
 	ruled.Home = ledger.State{Category: 9, Labels: []string{"auto-rule"}}
-	// Grab, charged at home and on the trip while a café at home was too, is in doubt: placed
-	// once, it is reverted without a reason.
+	// Grab, charged on the trip while a café settled at home was too, is in doubt: placed once,
+	// it is reverted without a reason.
 	grab := txn(4, "2026-03-07", -2, "GRAB", "4121", ledger.State{Category: 101, Labels: []string{Label, "trip-past"}})
-	pl := placer(past)
-	pl.Settings.Everywhere = []string{"GRAB"}
-	p := pl.Place([]Transaction{
+	p := placer(past).Place([]Transaction{
 		txn(1, "2026-03-05", -80, "RYOKAN", "7011", ledger.State{Category: 7, NeedsReview: true}),
 		txn(2, "2026-03-06", -10, "TEMPLE", "5999", ledger.State{Category: 7}),
 		ruled, grab,
 		txn(5, "2026-02-01", -2, "GRAB", "4121", ledger.State{Category: 6}),
-		txn(6, "2026-02-02", -4, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(7, "2026-03-08", -4, "HOMECAFE", "5812", ledger.State{Category: 5}),
+		txn(6, "2025-12-02", -4, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(8, "2026-01-02", -5, "HOMECAFE", "5812", ledger.State{Category: 5}),
+		txn(9, "2026-02-02", -6, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(7, "2026-03-08", -7, "HOMECAFE", "5812", ledger.State{Category: 5}),
 	})
 	wantState(t, p, 1, ledger.State{Category: 102, NeedsReview: true, Labels: []string{Label, "trip-past"}})
 	wantState(t, p, 2, ledger.State{Category: 104, Labels: []string{Label, "trip-past"}})
@@ -327,9 +356,9 @@ func TestATripWithdrawalGoesToBigCashAndItsRebateFollowsIt(t *testing.T) {
 
 func TestAPlacedChargeThatBecomesInDoubtIsRevertedWithTheUnsureReasonAndKeepsItsReviewFlag(t *testing.T) {
 	placedState := ledger.State{Category: 103, NeedsReview: true, Labels: []string{Label, "trip-abroad", Placed}}
-	seven := txn(1, "2026-10-10", -3, "SEVEN", "5499", placedState)
-	seven.Home = ledger.State{Category: 7}
-	txs := append(chainCharges()[:2:2], seven, txn(14, "2026-09-02", -4, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(3, "2026-10-11", -4, "HOMECAFE", "5812", ledger.State{Category: 5}))
+	mart := online(1, "2026-10-10", -3, "MART ONLINE", "5499", placedState)
+	mart.Home = ledger.State{Category: 7}
+	txs := append(homeCafe(), mart)
 	pl := placer(abroad, past)
 	pl.Seen = seen(PlacedPrefix(1) + abroad.Version())
 	pl.Origins = map[int64]ledger.State{1: {Category: 7}}
