@@ -129,14 +129,7 @@ func ReadSecret(ctx context.Context, op, ref string) (string, error) {
 
 // readFile returns the secret in an owner-only regular file.
 func readFile(path string) (string, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", fmt.Errorf("secret: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("secret %s: mode %v, want a regular file only its owner can read", path, info.Mode())
-	}
-	b, err := os.ReadFile(path)
+	b, err := ReadOwnerOnly(path)
 	if err != nil {
 		return "", fmt.Errorf("secret: %w", err)
 	}
@@ -145,6 +138,18 @@ func readFile(path string) (string, error) {
 		return "", errors.New("secret " + path + ": empty")
 	}
 	return secret, nil
+}
+
+// ReadOwnerOnly reads the regular file at path, refusing one its group or others can read or write.
+func ReadOwnerOnly(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("%s: mode %v, want a regular file only its owner can read", path, info.Mode())
+	}
+	return os.ReadFile(path)
 }
 
 // RulesPath is the private rules file under home.

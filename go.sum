@@ -4,3 +4,5 @@ github.com/cehbz/munkres v0.0.0-20261029130144-1ec8b6c3a159 h1:RTMwwZ7gRUAWhL6w/
 github.com/cehbz/munkres v0.0.0-20261029130144-1ec8b6c3a159/go.mod h1:dQD00isSswVAw8wbjhIFRQaxa3HlJKFGN0z1vvPa52I=
 github.com/cehbz/pocketsmith v0.3.0 h1:4IrKc1LLMkqOWtR8gP0OXdP0H5H/dTjaSMBAYrpVhJ4=
 github.com/cehbz/pocketsmith v0.3.0/go.mod h1:x5Ph5fEu1RBE7Bk6S9EpnVvIsPKatA9CM1a0QGrZcKM=
+golang.org/x/oauth2 v0.37.0 h1:JUlcxA8oAtauLfiH8FX2/FkAWHAdi0QtGCGc+hofE98=
+golang.org/x/oauth2 v0.37.0/go.mod h1:IxwZNxUULJmpBFf9K/9NTMSIfZZuvuTy1gGxhigP/58=
