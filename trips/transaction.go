@@ -3,7 +3,9 @@ package trips
 import (
 	"cmp"
 	"math"
+	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -23,16 +25,33 @@ func (t Transaction) Charge() bool { return t.Amount < 0 && !t.Transfer }
 // Credit reports whether t is money back: a credit that isn't a transfer.
 func (t Transaction) Credit() bool { return t.Amount > 0 && !t.Transfer }
 
-// Merchant is who t paid or was paid by: the record's merchant name, else the payee's key,
-// else the payee.
+// Merchant is who t paid or was paid by: the record's merchant name, else the key of the
+// payee's words with fewer than three digits, else the payee's key, else the payee. Skipping
+// the words with three or more keeps a terminal id or ticket number (`xx20000Q9C7777 ALPHA
+// PLAZA`) out of the key and names like 7-ELEVEN and 12GO in it.
 func (t Transaction) Merchant() string {
 	if t.Evidence.Merchant != "" {
 		return strings.ToUpper(t.Evidence.Merchant)
+	}
+	words := slices.DeleteFunc(strings.Fields(t.Payee), func(w string) bool { return countDigits(w) >= 3 })
+	if k := learn.PayeeKey(strings.Join(words, " ")); k != "" {
+		return k
 	}
 	if k := learn.PayeeKey(t.Payee); k != "" {
 		return k
 	}
 	return t.Payee
+}
+
+// countDigits is the number of digits in w.
+func countDigits(w string) int {
+	n := 0
+	for _, r := range w {
+		if unicode.IsDigit(r) {
+			n++
+		}
+	}
+	return n
 }
 
 // closeShare is how far apart two amounts may be, as a share of the earlier one, and still be

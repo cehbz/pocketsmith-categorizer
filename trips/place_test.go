@@ -115,6 +115,21 @@ func TestEverywhereAndGrabChargesAreInDoubtWhenSomeoneWasHome(t *testing.T) {
 	}
 }
 
+func TestAConfiguredEverywhereMerchantWithOnlyHomeHistoryIsInDoubtOrATripCharge(t *testing.T) {
+	grab := []Transaction{txn(10, "2026-09-01", -2, "GRAB", "4121", ledger.State{Category: 6}), txn(1, "2026-10-10", -2, "GRAB", "4121", ledger.State{Category: 6})}
+	pl := placer(abroad)
+	pl.Settings.Everywhere = []string{"GRAB"}
+	p := pl.Place(grab)
+	wantState(t, p, 1, ledger.State{Category: 101, Labels: []string{Label, "trip-abroad"}})
+
+	home := append(grab, txn(11, "2026-09-02", -4, "HOMECAFE", "5812", ledger.State{Category: 5}), txn(2, "2026-10-11", -4, "HOMECAFE", "5812", ledger.State{Category: 5}))
+	p = pl.Place(home)
+	unchanged(t, p, 1)
+	if !slices.Equal(p.Reasons[1], []string{Unsure}) {
+		t.Errorf("grab reasons = %v, want unsure while someone was home", p.Reasons[1])
+	}
+}
+
 func TestAUserCategorizedChargeIsRemappedOncePerVersionAndACorrectionStands(t *testing.T) {
 	p := placer(abroad).Place([]Transaction{txn(1, "2026-10-10", -8, "RAMEN", "", ledger.State{Category: 5})})
 	wantState(t, p, 1, ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})

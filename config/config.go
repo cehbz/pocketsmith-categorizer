@@ -236,10 +236,11 @@ func JudgedPath(home string) string {
 
 // Trips is the trips layer's configuration, naming PocketSmith categories by title.
 type Trips struct {
-	Places []string   `toml:"places"` // home places, as named in merchant names and payees
-	Big    TripTitles `toml:"big"`    // each kind's Big subcategory
-	Home   HomeKinds  `toml:"home"`   // home categories with a kind, for charges without a code
-	Codes  *Codes     `toml:"codes"`  // merchant category codes by kind; the defaults when absent
+	Places     []string   `toml:"places"`     // home places, as named in merchant names and payees
+	Everywhere []string   `toml:"everywhere"` // merchants always everywhere merchants (Grab), as word prefixes of the merchant
+	Big        TripTitles `toml:"big"`        // each kind's Big subcategory
+	Home       HomeKinds  `toml:"home"`       // home categories with a kind, for charges without a code
+	Codes      *Codes     `toml:"codes"`      // merchant category codes by kind; the defaults when absent
 }
 
 // TripTitles names each kind's Big subcategory.
@@ -340,7 +341,7 @@ func (c Config) TripSettings(cats []ledger.Category, start time.Time) (trips.Set
 			*f.dst = rs
 		}
 	}
-	return trips.Settings{Kinds: kinds, Places: tr.Places, Start: start, CashAccount: c.Income.Account}, nil
+	return trips.Settings{Kinds: kinds, Places: tr.Places, Everywhere: tr.Everywhere, Start: start, CashAccount: c.Income.Account}, nil
 }
 
 // TripsPath is the trip list the user edits, under home.

@@ -75,7 +75,7 @@ type placing struct {
 // leaves them as they are.
 func (p Placer) Place(txs []Transaction) Placing {
 	w := &placing{Placer: p, Placing: Placing{Reasons: map[int64][]string{}, Keys: map[int64]string{}},
-		merchants: NewMerchants(txs, p.List, p.Settings.Places), names: map[string]bool{}, final: map[int64]ledger.State{}}
+		merchants: NewMerchants(txs, p.List, p.Settings), names: map[string]bool{}, final: map[int64]ledger.State{}}
 	for _, t := range append(slices.Clone([]Trip(p.List)), p.Written...) {
 		w.names[t.Name] = true
 	}

@@ -248,6 +248,7 @@ func TestJudgedPathIsUnderHome(t *testing.T) {
 const tripsConfig = `
 [trips]
 places = ["HOMETOWN"]
+everywhere = ["GRAB"]
 
 [trips.big]
 transport = "Trip Transport"
@@ -290,7 +291,7 @@ func TestTripSettingsResolvesTitlesAndDefaultsTheCodes(t *testing.T) {
 		k.Home[15] != trips.Food || k.Home[16] != trips.Transport || !reflect.DeepEqual(k.Codes, trips.DefaultCodes()) {
 		t.Errorf("kinds = %+v", k)
 	}
-	if !slices.Equal(s.Places, []string{"HOMETOWN"}) || !s.Start.Equal(tripStart) || s.CashAccount != "Checking" {
+	if !slices.Equal(s.Places, []string{"HOMETOWN"}) || !slices.Equal(s.Everywhere, []string{"GRAB"}) || !s.Start.Equal(tripStart) || s.CashAccount != "Checking" {
 		t.Errorf("settings = %+v", s)
 	}
 	if p := c.Plaid; p.ClientIDRef != "/s/id" || p.SecretRef != "/s/secret" || p.AccessTokenRef != "/s/token" || p.Accounts["1111"] != "Card" {

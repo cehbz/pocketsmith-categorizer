@@ -82,3 +82,36 @@ func TestHomeActivityBetweenLegsSplitsThem(t *testing.T) {
 		t.Errorf("Infer = %+v, want two trips", got)
 	}
 }
+
+func TestAHomeCafeChargedOnALegSomeoneWasHomeForSplitsTheLegs(t *testing.T) {
+	s := inferring
+	s.Places = []string{"HOMETOWN"}
+	txs := []Transaction{
+		charge(1, "2026-02-01", -4, "CAFE"),
+		store(2, "2026-03-10", "A", "5812"), charge(3, "2026-03-11", -4, "CAFE"), charge(4, "2026-03-11", -2, "MART HOMETOWN"), store(5, "2026-03-12", "B", "5812"),
+		charge(6, "2026-03-20", -4, "CAFE"),
+		store(7, "2026-03-30", "C", "5812"), store(8, "2026-03-31", "D", "5812"),
+	}
+	got := Infer(txs, s, date("2026-03-01"))
+	want := []Trip{
+		{Name: "trip-2026-03-10", From: date("2026-03-10"), To: date("2026-03-12")},
+		{Name: "trip-2026-03-30", From: date("2026-03-30"), To: date("2026-03-31")},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Infer = %+v, want the cafe's charge at home to split the legs", got)
+	}
+}
+
+func TestAChainChargedAtHomeAndOnOneLegDoesntSplitTheTrip(t *testing.T) {
+	txs := []Transaction{
+		charge(1, "2026-02-01", -3, "CHAIN"),
+		store(2, "2026-03-10", "A", "5812"), store(3, "2026-03-12", "B", "5812"),
+		charge(4, "2026-03-20", -3, "CHAIN"),
+		store(5, "2026-03-30", "C", "5812"), charge(6, "2026-03-30", -3, "CHAIN"), store(7, "2026-03-31", "D", "5812"),
+	}
+	got := Infer(txs, inferring, date("2026-03-01"))
+	want := []Trip{{Name: "trip-2026-03-10", From: date("2026-03-10"), To: date("2026-03-31")}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Infer = %+v, want one trip: a chain at home and on one leg shows nobody home", got)
+	}
+}

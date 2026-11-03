@@ -42,6 +42,7 @@ tolerance = 1500           # how far a cycle may land from the estimate
 # The trips layer. Categories are PocketSmith category titles.
 [trips]
 places = ["HOMETOWN", "HOME TOWN"]   # home places, as named in merchant names and payees
+everywhere = ["GRAB"]                # always everywhere merchants, as word prefixes of the merchant
 
 [trips.big]                          # each kind's Big subcategory
 transport = "Trip Transport"

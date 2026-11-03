@@ -14,6 +14,7 @@ const legGap = 2 // most days between a leg's signal days
 type Settings struct {
 	Kinds       Kinds
 	Places      []string  // home places, as named in merchant names and payees
+	Everywhere  []string  // merchants that are always everywhere merchants (Grab), as word prefixes of the merchant
 	Start       time.Time // the attention start: trips ending before it are back-filled unflagged
 	CashAccount string    // the account cash is withdrawn from
 }
@@ -37,7 +38,7 @@ func Infer(txs []Transaction, s Settings, from time.Time) []Trip {
 			away = append(away, Trip{Name: "trip-" + day.Format(l.From), From: l.From, To: l.To})
 		}
 	}
-	m := NewMerchants(txs, away, s.Places)
+	m := legMerchants(txs, away, s)
 	var out []Trip
 	for _, t := range away {
 		if n := len(out); n > 0 && !homeBetween(txs, m, out[n-1].To, t.From) {
