@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // Memo is a set of keys kept in a JSON file.
@@ -77,3 +78,12 @@ func (m *Memo) Save() error {
 
 // Forget drops key, so it is no longer seen.
 func (m *Memo) Forget(key string) { delete(m.seen, key) }
+
+// ForgetPrefix drops every key starting with prefix.
+func (m *Memo) ForgetPrefix(prefix string) {
+	for k := range m.seen {
+		if strings.HasPrefix(k, prefix) {
+			delete(m.seen, k)
+		}
+	}
+}

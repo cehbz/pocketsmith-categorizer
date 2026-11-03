@@ -63,3 +63,17 @@ func TestAForgottenKeyIsNotSeen(t *testing.T) {
 		t.Errorf("after Forget(a): a seen %v, b seen %v", m.Seen("a"), m.Seen("b"))
 	}
 }
+
+func TestForgetPrefixDropsTheMatchingKeys(t *testing.T) {
+	m, err := Load(filepath.Join(t.TempDir(), "placed.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"placed 1 a", "placed 1 b", "placed 12 a"} {
+		m.Add(k)
+	}
+	m.ForgetPrefix("placed 1 ")
+	if m.Seen("placed 1 a") || m.Seen("placed 1 b") || !m.Seen("placed 12 a") {
+		t.Error("ForgetPrefix dropped the wrong keys")
+	}
+}

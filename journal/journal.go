@@ -4,7 +4,9 @@ package journal
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
+	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
 // Store keeps one JSON-lines file per run in Dir.
@@ -87,22 +90,18 @@ func (s Store) Load(id string) ([]categorize.Change, error) {
 
 const undoPrefix = "undo "
 
-// LastSet returns, for each transaction, the category the journal last recorded the
-// categorizer setting: its last active non-undo change whose After is categorizer-owned. An
-// undo entry (Source UndoSource(run ID)) deactivates that run's change to the transaction
-// unless the undo's own run was itself undone, so an undo of an undo reactivates the original.
-// Undo entries and records that are not owned (a user's correction) are never returned; a
-// transaction with no such change is absent.
-func (s Store) LastSet() (map[int64]categorize.Change, error) {
+type entry struct {
+	run string
+	c   categorize.Change
+}
+
+// history reads every run's changes, by transaction, oldest first.
+func (s Store) history() (map[int64][]entry, error) {
 	names, err := filepath.Glob(filepath.Join(s.Dir, "*.jsonl"))
 	if err != nil {
 		return nil, err
 	}
 	slices.Sort(names)
-	type entry struct {
-		run string
-		c   categorize.Change
-	}
 	byTx := map[int64][]entry{}
 	for _, n := range names {
 		id := strings.TrimSuffix(filepath.Base(n), ".jsonl")
@@ -114,24 +113,105 @@ func (s Store) LastSet() (map[int64]categorize.Change, error) {
 			byTx[c.Charge] = append(byTx[c.Charge], entry{id, c})
 		}
 	}
+	return byTx, nil
+}
+
+// active is a transaction's changes still in effect, oldest first: an undo entry (Source
+// UndoSource(run ID)) deactivates that run's change unless the undo's own run was itself
+// undone, so an undo of an undo reactivates the original. Undo entries are never active.
+func active(entries []entry) []categorize.Change {
+	undone := map[string]bool{}
+	var out []categorize.Change
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if target, ok := strings.CutPrefix(e.c.Source, undoPrefix); ok {
+			if !undone[e.run] {
+				undone[target] = true
+			}
+			continue
+		}
+		if !undone[e.run] {
+			out = append(out, e.c)
+		}
+	}
+	slices.Reverse(out)
+	return out
+}
+
+// LastSet returns, for each transaction, the category the journal last recorded the
+// categorizer setting: its last active change whose After is categorizer-owned. Records
+// that are not owned (a user's correction) are never returned; a transaction with no such
+// change is absent.
+func (s Store) LastSet() (map[int64]categorize.Change, error) {
+	byTx, err := s.history()
+	if err != nil {
+		return nil, err
+	}
 	out := map[int64]categorize.Change{}
 	for tx, entries := range byTx {
-		undone := map[string]bool{}
-		for i := len(entries) - 1; i >= 0; i-- {
-			e := entries[i]
-			if target, ok := strings.CutPrefix(e.c.Source, undoPrefix); ok {
-				if !undone[e.run] {
-					undone[target] = true
-				}
-				continue
-			}
-			if !undone[e.run] && e.c.After.Owned() {
-				out[tx] = e.c
+		cs := active(entries)
+		for i := len(cs) - 1; i >= 0; i-- {
+			if cs[i].After.Owned() {
+				out[tx] = cs[i]
 				break
 			}
 		}
 	}
 	return out, nil
+}
+
+// Origins returns, for each transaction whose latest active change has a source isTrip
+// accepts, its state before that unbroken run of such changes began.
+func (s Store) Origins(isTrip func(source string) bool) (map[int64]ledger.State, error) {
+	byTx, err := s.history()
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64]ledger.State{}
+	for tx, entries := range byTx {
+		var origin *ledger.State
+		for _, c := range active(entries) {
+			switch {
+			case !isTrip(c.Source):
+				origin = nil
+			case origin == nil:
+				before := c.Before
+				origin = &before
+			}
+		}
+		if origin != nil {
+			out[tx] = *origin
+		}
+	}
+	return out, nil
+}
+
+// SaveTrips records the trips run id added to the trip list.
+func (s Store) SaveTrips(id string, names []string) error {
+	b, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.Dir, id+".trips.json"), b, 0o600)
+}
+
+// Trips returns the trips run id added; none when it added none.
+func (s Store) Trips(id string) ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(s.Dir, id+".trips.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	if err := json.Unmarshal(b, &names); err != nil {
+		return nil, fmt.Errorf("run %s trips: %w", id, err)
+	}
+	return names, nil
 }
 
 // UndoSource is the Source of an entry that undoes run runID.

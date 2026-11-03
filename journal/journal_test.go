@@ -3,6 +3,7 @@ package journal
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,5 +204,74 @@ func TestUndoSourceDeactivatesTheNamedRun(t *testing.T) {
 	got, err := s.LastSet()
 	if err != nil || len(got) != 0 {
 		t.Errorf("LastSet = %v, %v, want empty", got, err)
+	}
+}
+
+func recordChange(t *testing.T, s Store, day int, c categorize.Change) string {
+	t.Helper()
+	r, err := s.Start(time.Date(2026, 10, day, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Record(c); err != nil {
+		t.Fatal(err)
+	}
+	return r.ID
+}
+
+func isTrip(source string) bool { return strings.HasPrefix(source, "trips: ") }
+
+var (
+	ruled  = ledger.State{Category: 5, Labels: []string{"auto-rule"}}
+	placed = ledger.State{Category: 9, Labels: []string{"auto-trip"}}
+)
+
+func TestOriginsIsTheStateBeforeTheTripChangesBegan(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	recordChange(t, s, 1, categorize.Change{Charge: 11, Before: ledger.State{NeedsReview: true}, After: ruled, Source: "rule a"})
+	recordChange(t, s, 2, categorize.Change{Charge: 11, Before: ruled, After: placed, Source: "trips: t1"})
+	recordChange(t, s, 3, categorize.Change{Charge: 11, Before: placed, After: ledger.State{Category: 8, Labels: []string{"auto-trip"}}, Source: "trips: t2"})
+	got, err := s.Origins(isTrip)
+	if err != nil || len(got) != 1 || !got[11].Equal(ruled) {
+		t.Errorf("Origins = %v, %v; want the rule's state", got, err)
+	}
+}
+
+func TestOriginsOmitsATransactionWhoseLatestChangeIsntATrips(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	recordChange(t, s, 1, categorize.Change{Charge: 11, Before: ruled, After: placed, Source: "trips: t1"})
+	recordChange(t, s, 2, categorize.Change{Charge: 11, Before: placed, After: ledger.State{Category: 5}, Source: "revert trips"})
+	got, err := s.Origins(isTrip)
+	if err != nil || len(got) != 0 {
+		t.Errorf("Origins = %v, %v; want empty", got, err)
+	}
+}
+
+func TestOriginsSkipsUndoneTripChanges(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	recordChange(t, s, 1, categorize.Change{Charge: 11, Before: ledger.State{}, After: ruled, Source: "rule a"})
+	trip := recordChange(t, s, 2, categorize.Change{Charge: 11, Before: ruled, After: placed, Source: "trips: t1"})
+	recordChange(t, s, 3, categorize.Change{Charge: 11, Before: placed, After: ruled, Source: UndoSource(trip)})
+	got, err := s.Origins(isTrip)
+	if err != nil || len(got) != 0 {
+		t.Errorf("Origins = %v, %v; want empty", got, err)
+	}
+}
+
+func TestSaveTripsAndTripsRoundTrip(t *testing.T) {
+	s := Store{Dir: filepath.Join(t.TempDir(), "journal")}
+	if err := s.SaveTrips("RUN", []string{"a", "b"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Trips("RUN")
+	if err != nil || !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("Trips = %v, %v; want a, b", got, err)
+	}
+	if got, err := s.Trips("OTHER"); err != nil || got != nil {
+		t.Errorf("Trips of a run that added none = %v, %v", got, err)
+	}
+	if _, err := s.Latest(); err == nil {
+		t.Error("Latest counted a trips file as a run")
 	}
 }
