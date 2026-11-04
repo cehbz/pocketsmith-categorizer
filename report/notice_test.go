@@ -62,7 +62,7 @@ func TestOnlyAppliedFlagsCountAsToReview(t *testing.T) {
 
 func TestAFailureSubjectIsOneLine(t *testing.T) {
 	err := errors.Join(errors.New("pocketsmith: GET /me: timeout"), errors.New("second"))
-	if got := Failure(err); got != "categorize run failed: pocketsmith: GET /me: timeout" {
+	if got := Failure(err); got != "Categorizer: run failed: pocketsmith: GET /me: timeout" {
 		t.Errorf("Failure = %q", got)
 	}
 }

@@ -32,5 +32,5 @@ func Notice(r Run) (subject string, due bool) {
 // Failure is the subject of an email about a run that failed with err: its first line.
 func Failure(err error) string {
 	line, _, _ := strings.Cut(err.Error(), "\n")
-	return "categorize run failed: " + line
+	return "Categorizer: run failed: " + line
 }

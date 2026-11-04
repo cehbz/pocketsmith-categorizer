@@ -96,7 +96,7 @@ func TestAFailedRunInsertsAFailureNoticeNamingTheError(t *testing.T) {
 	if err := notified(context.Background(), n, runErr); !errors.Is(err, runErr) {
 		t.Errorf("notified: %v; want the run's error", err)
 	}
-	if len(b.notices) != 1 || b.notices[0].Subject != "categorize run failed: pocketsmith: GET /me: context deadline exceeded" || !strings.Contains(b.notices[0].Body, runErr.Error()) || b.notices[0].HTML != "" {
+	if len(b.notices) != 1 || b.notices[0].Subject != "Categorizer: run failed: pocketsmith: GET /me: context deadline exceeded" || !strings.Contains(b.notices[0].Body, runErr.Error()) || b.notices[0].HTML != "" {
 		t.Errorf("notices %+v; want one plain-text failure notice naming the error", b.notices)
 	}
 	if err := notified(context.Background(), n, nil); err != nil || len(b.notices) != 1 {
