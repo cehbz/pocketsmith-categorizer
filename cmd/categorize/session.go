@@ -15,7 +15,9 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
+	"github.com/cehbz/pocketsmith-categorizer/fx"
 	"github.com/cehbz/pocketsmith-categorizer/gcal"
+	"github.com/cehbz/pocketsmith-categorizer/gmail"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/plaid"
@@ -32,19 +34,24 @@ type sessionLedger interface {
 
 // session is what every command needs: the ledger, its categories and rules, and today.
 type session struct {
-	ledger    sessionLedger
-	titles    map[ledger.CategoryID]string
-	rules     rules.Rules
-	today     time.Time          // in the ledger's time zone, midnight UTC
-	attention attention.Settings // when transactions need the user
-	trips     trips.Settings
-	card      trips.Card
-	accounts  []string // the PocketSmith accounts the card covers
-	calendar  trips.Calendar
+	ledger     sessionLedger
+	titles     map[ledger.CategoryID]string
+	rules      rules.Rules
+	today      time.Time          // in the ledger's time zone, midnight UTC
+	attention  attention.Settings // when transactions need the user
+	trips      trips.Settings
+	card       trips.Card
+	accounts   []string // the PocketSmith accounts the card covers
+	calendar   trips.Calendar
+	receipts   mailbox    // the user's mail, for Grab's receipts
+	rates      rateSource // THB per USD
+	grabPayees []string
+	grabPolicy categorize.Policy
+	loc        *time.Location // the ledger's time zone
 }
 
-// open loads config, reads the PocketSmith key, the Plaid secrets and the calendar's OAuth
-// client, and loads the rules file before any transaction is read.
+// open loads config, reads the PocketSmith key, the Plaid secrets and the Google OAuth client,
+// and loads the rules file before any transaction is read.
 func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -75,7 +82,7 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	cal, err := openCalendar(ctx, cfg.Calendar)
+	cal, mail, err := openGoogle(ctx, cfg.Calendar)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +95,9 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 		titles[c.ID] = c.Title
 	}
 	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc), attention: set,
-		trips: tripSet, card: card, accounts: slices.Sorted(maps.Values(cfg.Plaid.Accounts)), calendar: cal}, nil
+		trips: tripSet, card: card, accounts: slices.Sorted(maps.Values(cfg.Plaid.Accounts)), calendar: cal,
+		receipts: mail, rates: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: &http.Client{Timeout: 30 * time.Second}},
+		grabPayees: cfg.Payees, grabPolicy: cfg.Policy(), loc: loc}, nil
 }
 
 // openCard reads the Plaid secrets and returns the card they open.
@@ -105,22 +114,23 @@ func openCard(ctx context.Context, p config.Plaid) (plaid.Card, error) {
 	return plaid.Card{Client: c, Accounts: p.Accounts}, nil
 }
 
-// openCalendar reads the calendar's OAuth client and returns the calendar its token opens.
-func openCalendar(ctx context.Context, c config.Calendar) (*gcal.Client, error) {
-	conf, err := calendarOAuth(ctx, c)
+// openGoogle reads the Google OAuth client and returns the calendar and the mailbox its token
+// opens, through one authorized HTTP client.
+func openGoogle(ctx context.Context, c config.Calendar) (*gcal.Client, *gmail.Client, error) {
+	conf, err := googleOAuth(ctx, c)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	h, err := gcal.Authorized(ctx, conf, gcal.TokenFile(c.TokenRef), &http.Client{Timeout: 60 * time.Second})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &gcal.Client{BaseURL: gcal.BaseURL, ID: c.ID, HTTP: h}, nil
+	return &gcal.Client{BaseURL: gcal.BaseURL, ID: c.ID, HTTP: h}, &gmail.Client{BaseURL: gmail.BaseURL, HTTP: h}, nil
 }
 
-// calendarOAuth is the calendar's OAuth client, its id and secret read through their
-// references.
-func calendarOAuth(ctx context.Context, c config.Calendar) (*oauth2.Config, error) {
+// googleOAuth is the Google OAuth client reading the calendar and Gmail, its id and secret
+// read through the calendar's references.
+func googleOAuth(ctx context.Context, c config.Calendar) (*oauth2.Config, error) {
 	if missing := c.Missing(); len(missing) > 0 {
 		return nil, fmt.Errorf("config: missing %s", strings.Join(missing, ", "))
 	}
@@ -132,5 +142,5 @@ func calendarOAuth(ctx context.Context, c config.Calendar) (*oauth2.Config, erro
 		}
 		client[i] = s
 	}
-	return gcal.OAuth(client[0], client[1]), nil
+	return gcal.OAuth(client[0], client[1], gcal.Scope, gmail.Scope), nil
 }

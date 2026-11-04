@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,9 +28,15 @@ func tokens(t *testing.T, status int, body string) (conf *oauth2.Config, forms *
 		w.Write([]byte(body))
 	}))
 	t.Cleanup(srv.Close)
-	conf = OAuth("client-1", "s3cret")
+	conf = OAuth("client-1", "s3cret", Scope)
 	conf.Endpoint = oauth2.Endpoint{AuthURL: srv.URL + "/auth", TokenURL: srv.URL + "/token", AuthStyle: oauth2.AuthStyleInParams}
 	return conf, forms
+}
+
+func TestOAuthAsksForTheScopesGiven(t *testing.T) {
+	if got := OAuth("id", "secret", "a", "b").Scopes; !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("scopes = %q, want [a b]", got)
+	}
 }
 
 // tokenFile is a token file holding t.

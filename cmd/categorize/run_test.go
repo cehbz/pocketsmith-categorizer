@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"maps"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -12,9 +14,11 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
+	"github.com/cehbz/pocketsmith-categorizer/gmail"
 	"github.com/cehbz/pocketsmith-categorizer/journal"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/memo"
+	"github.com/cehbz/pocketsmith-categorizer/rules"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
@@ -108,6 +112,7 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 	start := mustParse("2026-10-01")
 	big := map[trips.Kind]ledger.CategoryID{trips.Transport: 101, trips.Lodging: 102, trips.Food: 103, trips.Discretionary: 104, trips.Cash: 105}
 	s := &session{ledger: l, titles: map[ledger.CategoryID]string{}, today: mustParse("2026-11-03"), card: c, accounts: []string{"Card"}, calendar: &fakeCalendar{},
+		receipts: &fakeMailbox{}, grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: time.UTC,
 		attention: attention.Settings{Start: start, Size: attention.Size{Absolute: 1e9, SD: 1e3}},
 		trips:     trips.Settings{Kinds: trips.Kinds{Codes: trips.DefaultCodes(), Big: big}, Home: trips.Home{Places: []string{"HOMETOWN"}}, Start: start}}
 	return s, l
@@ -344,5 +349,47 @@ func TestATripInferredBeyondOneTheUserEditedIsAHintEveryRunAndTheListStays(t *te
 	}
 	if !strings.Contains(out.String(), want) || !reflect.DeepEqual(store.list, trips.List{edited}) || store.saves != 0 {
 		t.Errorf("next run: list %v after %d saves; want the hint again and the list as the user left it\n%s", store.list, store.saves, out.String())
+	}
+}
+
+// grabRun is tripRun with a Grab ride's charge needing review, a rule that also matches it,
+// and the ride's receipt in the mailbox.
+func grabRun(t *testing.T) (*session, *fakeLedger) {
+	t.Helper()
+	s, l := tripRun(t)
+	l.txs[11] = ledger.Transaction{ID: 11, Date: mustParse("2026-11-02"), Amount: -2, Payee: "GRAB", Account: ledger.Account{Name: "Card"}, State: ledger.State{NeedsReview: true}}
+	path := filepath.Join(t.TempDir(), "rules.toml")
+	if err := os.WriteFile(path, []byte("[[rule]]\npayee = \"GRAB\"\ncategory = \"Travel\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := rules.Load(path, []ledger.Category{{ID: 30, Title: "Travel"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.rules = rs
+	s.receipts = &fakeMailbox{messages: []gmail.Message{{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}
+	s.rates = rates(t, "35")
+	return s, l
+}
+
+func TestARunPutsAGrabChargeAReceiptMatchesInItsServicesCategoryAheadOfTheRules(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := grabRun(t)
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if got := l.txs[11].State; got.Category != grabPolicy.Ride || !got.HasLabel("grab-auto") {
+		t.Errorf("Grab charge %+v; want the ride category under grab-auto\n%s", got, out.String())
+	}
+}
+
+func TestAMailboxFailureFailsTheRunBeforeAnythingIsApplied(t *testing.T) {
+	newRunner, store := runners(t)
+	s, l := grabRun(t)
+	s.receipts = &fakeMailbox{err: gmail.ErrAuth}
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); !errors.Is(err, gmail.ErrAuth) || l.updates != 0 || store.saves != 0 {
+		t.Errorf("run: %v after %d updates and %d trip list saves; want the mailbox's error and nothing applied\n%s", err, l.updates, store.saves, out.String())
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
+	"github.com/cehbz/pocketsmith-categorizer/grab"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -56,6 +57,31 @@ func TestWriteRunListsEverySection(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestWriteRunListsTheReceiptsItCouldntUseAfterTheChanges(t *testing.T) {
+	r := Run{
+		RunID:   "RUN1",
+		Changes: []categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 5}, Source: "rule-a"}},
+		Applied: 1,
+		Receipts: Receipts{
+			Unreadable: []Unreadable{{Received: time.Date(2026, 11, 2, 6, 19, 0, 0, time.UTC), Why: "no total"}},
+			Unmatched:  []grab.Payment{{Booking: "A-TESTRIDE0001", Service: "Standard", THB: 78, At: time.Date(2026, 11, 1, 13, 5, 0, 0, time.UTC), Account: "a@example.com"}},
+		},
+		Titles:       titles,
+		Transactions: map[int64]ledger.Transaction{1: rtx(1, "SHOP", 3)},
+	}
+	var b strings.Builder
+	if err := WriteRun(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	want := "changed (1):\n  2026-02-01 Card -12.50 SHOP: Phone -> Food (rule-a)\n" +
+		"grab receipts not read (1):\n  2026-11-02 no total\n" +
+		"grab receipts matching no charge (1):\n  a@example.com A-TESTRIDE0001 Standard 2026-11-01 13:05 THB 78.00\n" +
+		"trips added (0):\n"
+	if !strings.Contains(b.String(), want) {
+		t.Errorf("report lacks %q:\n%s", want, b.String())
 	}
 }
 

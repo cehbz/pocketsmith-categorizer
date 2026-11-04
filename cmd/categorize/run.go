@@ -104,7 +104,11 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	}
 
 	start := s.today.AddDate(0, 0, -r.lookback) // the categorizer changes nothing dated before it
-	plan := decide.Make(txs, []decide.Layer{s.rules}, last, start)
+	grabbed, receipts, err := readGrab(ctx, s, txs, start)
+	if err != nil {
+		return err
+	}
+	plan := decide.Make(txs, []decide.Layer{grabbed, s.rules}, last, start)
 	card, inferred, err := inferTrips(ctx, s, txs, plan, from, list)
 	if err != nil {
 		return err
@@ -174,6 +178,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
 		TripsAdded: withEvidence(listed.Added, inferred), TripVersions: trips.Without(pl.Versions, trips.Names(listing.Added)), Hints: hints,
+		Receipts: receipts,
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)

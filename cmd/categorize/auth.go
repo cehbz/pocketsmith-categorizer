@@ -11,9 +11,9 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/gcal"
 )
 
-// authCmd asks the user's consent to read their calendar, through the browser and a loopback
-// redirect, and writes the token to the calendar's token file, owner-only; runs after it are
-// unattended.
+// authCmd asks the user's consent to read their calendar and Grab receipts, through the
+// browser and a loopback redirect, and writes the token to the calendar's token file,
+// owner-only; runs after it are unattended.
 func authCmd(ctx context.Context, args []string, out io.Writer) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -33,12 +33,12 @@ func authCmd(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	c := cfg.Calendar
-	conf, err := calendarOAuth(ctx, c)
+	conf, err := googleOAuth(ctx, c)
 	if err != nil {
 		return err
 	}
 	t, err := gcal.Consent(ctx, conf, func(url string) {
-		fmt.Fprintf(out, "Open this page to let the categorizer read your calendar:\n\n  %s\n\nWaiting for your consent...\n", url)
+		fmt.Fprintf(out, "Open this page to let the categorizer read your calendar and Grab receipts:\n\n  %s\n\nWaiting for your consent...\n", url)
 	})
 	if err != nil {
 		return err

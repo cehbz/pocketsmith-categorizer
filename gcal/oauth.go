@@ -25,9 +25,9 @@ const Scope = "https://www.googleapis.com/auth/calendar.readonly"
 // ErrAuth is a token that is missing, expired without a way to refresh it, or revoked.
 var ErrAuth = errors.New("calendar: no usable token: run categorize auth")
 
-// OAuth is the OAuth client for reading Google calendars.
-func OAuth(clientID, clientSecret string) *oauth2.Config {
-	return &oauth2.Config{ClientID: clientID, ClientSecret: clientSecret, Endpoint: endpoints.Google, Scopes: []string{Scope}}
+// OAuth is the Google OAuth client asking for scopes.
+func OAuth(clientID, clientSecret string, scopes ...string) *oauth2.Config {
+	return &oauth2.Config{ClientID: clientID, ClientSecret: clientSecret, Endpoint: endpoints.Google, Scopes: scopes}
 }
 
 // TokenFile is an OAuth token in a file only its owner can read.

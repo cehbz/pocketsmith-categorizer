@@ -12,6 +12,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
+	"github.com/cehbz/pocketsmith-categorizer/grab"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -42,6 +43,20 @@ type Run struct {
 	TripsAdded     []trips.Inferred             // trips the run added to the list, with their evidence
 	TripVersions   []trips.Trip                 // listed trips placed under new names or dates
 	Hints          []trips.Hint                 // inferred trips reaching beyond trips the user edited
+	Receipts       Receipts                     // the Grab receipts the run couldn't read or match
+}
+
+// Receipts are the Grab receipts a run couldn't use: those it couldn't read and the payments
+// no charge matched.
+type Receipts struct {
+	Unreadable []Unreadable
+	Unmatched  []grab.Payment
+}
+
+// Unreadable is a receipt that arrived at Received and couldn't be read, and why.
+type Unreadable struct {
+	Received time.Time
+	Why      string
 }
 
 func title(titles map[ledger.CategoryID]string, id ledger.CategoryID) string {
@@ -65,6 +80,14 @@ func WriteRun(w io.Writer, r Run) error {
 	p.f("changed (%d):\n", r.Applied)
 	for _, c := range r.Changes[:r.Applied] {
 		p.f("  %s: %s -> %s (%s)\n", describe(r.Transactions[c.Charge]), title(r.Titles, c.Before.Category), title(r.Titles, c.After.Category), c.Source)
+	}
+	p.f("grab receipts not read (%d):\n", len(r.Receipts.Unreadable))
+	for _, u := range r.Receipts.Unreadable {
+		p.f("  %s %s\n", day.Format(u.Received), u.Why)
+	}
+	p.f("grab receipts matching no charge (%d):\n", len(r.Receipts.Unmatched))
+	for _, pay := range r.Receipts.Unmatched {
+		p.payment("  ", pay)
 	}
 	p.f("trips added (%d):\n", len(r.TripsAdded))
 	for _, t := range r.TripsAdded {
