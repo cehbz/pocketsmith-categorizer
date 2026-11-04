@@ -7,3 +7,5 @@
 - Grab and Patreon can include widely varying amounts under a single payee, which can trigger `attention-large`; consider adding more context to disambiguate.
 - Unattended secrets through a 1Password service account: a vault holding only the categorizer's secrets, the token in the Keychain, `op` reading without a prompt. Owner-only files hold them now. Plan eligibility for service accounts is unverified.
 - Rename the Big category and its subcategories to Trips, with the config's `[trips.big]` table, so nothing reads `trips.trips`.
+- Trip kinds took two runs to settle: the run after the back-fill moved some trip charges between Big subcategories (a museum, an airport food court and a restaurant between Discretionary and Food, a ground-transport booking from Lodging to Transport, parking and valet to Transport), and the run after that applied nothing. Cause not investigated. Kind by merchant code also files taxi apps under Discretionary and a theme park under Lodging.
+- Two back-filled charges moved from Charity to Big stayed there after Charity became a stay-home category.
