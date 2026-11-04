@@ -513,3 +513,24 @@ func TestTheReportIsHeadedByTheRunsStartInTheLedgersTimeZone(t *testing.T) {
 		t.Errorf("header %q, %v; want the run's start in the ledger's zone, %v..%v", header, err, before, after)
 	}
 }
+
+func TestTheReportHeadsTheRunWithItsStartInLocalTime(t *testing.T) {
+	local := time.Local
+	time.Local = time.FixedZone("UTC+7", 7*3600)
+	t.Cleanup(func() { time.Local = local })
+	newRunner, _ := runners(t)
+	s, _ := tripRun(t)
+	s.loc = time.FixedZone("UTC-5", -5*3600)
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	header, _, _ := strings.Cut(out.String(), " ·")
+	at, err := time.ParseInLocation("Run 2006-01-02 15:04", header, time.Local)
+	if err != nil {
+		t.Fatalf("header %q: %v", header, err)
+	}
+	if d := time.Since(at); d < -time.Minute || d > 2*time.Minute {
+		t.Errorf("header %q is %v from now in local time; want the run's start", header, d)
+	}
+}

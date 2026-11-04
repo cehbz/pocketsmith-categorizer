@@ -24,7 +24,7 @@ import (
 // Run is what a categorize run did and found.
 type Run struct {
 	RunID          string
-	At             time.Time           // when the run started, in the ledger's time zone
+	At             time.Time           // when the run started, in local time
 	Changes        []categorize.Change // planned decisions, applied in order
 	Applied        int
 	Flags          []categorize.Change // transactions put in review without a decision, applied after Changes
