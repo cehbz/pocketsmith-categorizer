@@ -1,12 +1,15 @@
-// Package gmail reads the user's Gmail messages for the receipts layer.
+// Package gmail reads the user's Gmail messages for the receipts layer and inserts notices
+// into their inbox.
 package gmail
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -22,6 +25,15 @@ const BaseURL = "https://gmail.googleapis.com/gmail/v1"
 
 // Scope reads mail and nothing else.
 const Scope = "https://www.googleapis.com/auth/gmail.readonly"
+
+// InsertScope adds messages to the mailbox and nothing else.
+const InsertScope = "https://www.googleapis.com/auth/gmail.insert"
+
+// Notice is an email for the mailbox's owner.
+type Notice struct {
+	Subject string
+	Body    string
+}
 
 // ErrAuth is a token that is missing, expired without a way to refresh it, revoked, or
 // without the Gmail scope.
@@ -97,21 +109,65 @@ func (c *Client) Messages(ctx context.Context, query string, from, to time.Time)
 	}
 }
 
-// get reads the API's response at path into out. A failure reports the API's status and
-// message, never the request; a rejected token, or one without the Gmail scope, says to run
-// categorize auth.
+// get reads the API's response at path into out.
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path+"?"+q.Encode(), nil)
 	if err != nil {
 		return err
 	}
+	return c.do(req, out)
+}
+
+// Insert puts n in the inbox, unread, from and to the mailbox's own address, without sending
+// it, dated when it arrives.
+func (c *Client) Insert(ctx context.Context, n Notice) error {
+	var profile struct {
+		Email string `json:"emailAddress"`
+	}
+	if err := c.get(ctx, "/users/me/profile", url.Values{}, &profile); err != nil {
+		return err
+	}
+	body, err := json.Marshal(map[string]any{
+		"raw":      base64.URLEncoding.EncodeToString(compose(profile.Email, n, time.Now())),
+		"labelIds": []string{"INBOX", "UNREAD"},
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/users/me/messages?internalDateSource=receivedTime", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, nil)
+}
+
+// compose is n as a plain-text message from and to addr: its subject encoded for any
+// alphabet, its body in base64 lines.
+func compose(addr string, n Notice, now time.Time) []byte {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n",
+		addr, addr, mime.QEncoding.Encode("utf-8", n.Subject), now.Format(time.RFC1123Z))
+	enc := base64.StdEncoding.EncodeToString([]byte(n.Body))
+	for len(enc) > 76 {
+		b.WriteString(enc[:76] + "\r\n")
+		enc = enc[76:]
+	}
+	b.WriteString(enc + "\r\n")
+	return b.Bytes()
+}
+
+// do sends req and reads its response into out, unless out is nil. A failure reports the
+// API's status and message, never the request; a rejected token, or one without the scope
+// the request needs, says to run categorize auth.
+func (c *Client) do(req *http.Request, out any) error {
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
 			err = ue.Err // the URL adds nothing to the token's or the network's error
 		}
-		return fmt.Errorf("gmail messages: %w", err)
+		return fmt.Errorf("gmail: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -142,10 +198,13 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 				}
 			}
 		}
-		return fmt.Errorf("gmail messages: %s: %s", resp.Status, e.Error.Message)
+		return fmt.Errorf("gmail: %s: %s", resp.Status, e.Error.Message)
+	}
+	if out == nil {
+		return nil
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("gmail messages: %w", err)
+		return fmt.Errorf("gmail: %w", err)
 	}
 	return nil
 }
