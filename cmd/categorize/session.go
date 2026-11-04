@@ -128,8 +128,8 @@ func openGoogle(ctx context.Context, c config.Calendar) (*gcal.Client, *gmail.Cl
 	return &gcal.Client{BaseURL: gcal.BaseURL, ID: c.ID, HTTP: h}, &gmail.Client{BaseURL: gmail.BaseURL, HTTP: h}, nil
 }
 
-// googleOAuth is the Google OAuth client reading the calendar and Gmail, its id and secret
-// read through the calendar's references.
+// googleOAuth is the Google OAuth client reading the calendar and Gmail and inserting notices
+// into the inbox, its id and secret read through the calendar's references.
 func googleOAuth(ctx context.Context, c config.Calendar) (*oauth2.Config, error) {
 	if missing := c.Missing(); len(missing) > 0 {
 		return nil, fmt.Errorf("config: missing %s", strings.Join(missing, ", "))
@@ -142,5 +142,5 @@ func googleOAuth(ctx context.Context, c config.Calendar) (*oauth2.Config, error)
 		}
 		client[i] = s
 	}
-	return gcal.OAuth(client[0], client[1], gcal.Scope, gmail.Scope), nil
+	return gcal.OAuth(client[0], client[1], gcal.Scope, gmail.Scope, gmail.InsertScope), nil
 }

@@ -29,12 +29,15 @@ type Run struct {
 
 const idLayout = "20060102T150405.000000000"
 
+// ID is the name of a run started at t.
+func ID(t time.Time) string { return t.UTC().Format(idLayout) + "Z" }
+
 // Start opens a new run journal named for now.
 func (s Store) Start(now time.Time) (*Run, error) {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	id := now.UTC().Format(idLayout) + "Z"
+	id := ID(now)
 	f, err := os.OpenFile(filepath.Join(s.Dir, id+".jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err

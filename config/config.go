@@ -153,6 +153,11 @@ func ReadOwnerOnly(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// ReportsDir is where scheduled runs save their reports, under home.
+func ReportsDir(home string) string {
+	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "reports")
+}
+
 // RulesPath is the private rules file under home.
 func RulesPath(home string) string {
 	return filepath.Join(home, ".config", "pocketsmith-categorizer", "rules.toml")

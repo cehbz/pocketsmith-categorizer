@@ -431,3 +431,9 @@ func TestSettingsCountsBigCashAsCash(t *testing.T) {
 		t.Error("Settings accepted an unknown trips.big.cash title")
 	}
 }
+
+func TestReportsDirIsUnderTheStateDirectory(t *testing.T) {
+	if got := ReportsDir("/h"); got != "/h/.local/state/pocketsmith-categorizer/reports" {
+		t.Errorf("ReportsDir = %q", got)
+	}
+}

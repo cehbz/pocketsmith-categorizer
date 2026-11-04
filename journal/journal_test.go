@@ -286,3 +286,15 @@ func TestSaveTripsAndTripsRoundTrip(t *testing.T) {
 		t.Error("Latest counted a trips file as a run")
 	}
 }
+
+func TestIDIsTheNameStartGivesARun(t *testing.T) {
+	now := time.Date(2026, 11, 5, 21, 0, 0, 5, time.UTC)
+	r, err := Store{Dir: t.TempDir()}.Start(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if r.ID != ID(now) || ID(now) != "20261105T210000.000000005Z" {
+		t.Errorf("Start's ID %q, ID %q; want both 20261105T210000.000000005Z", r.ID, ID(now))
+	}
+}

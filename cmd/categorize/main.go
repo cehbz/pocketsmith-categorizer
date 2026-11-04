@@ -1,7 +1,7 @@
 // Command categorize decides PocketSmith categories through the categorizer's layers:
 // "categorize run" applies decisions, "categorize replay" measures rules against the user's
 // categorizations, "categorize undo [run-id]" reverses a run, "categorize auth" lets it read
-// the user's calendar.
+// the user's calendar and mail and put notices in their inbox.
 package main
 
 import (

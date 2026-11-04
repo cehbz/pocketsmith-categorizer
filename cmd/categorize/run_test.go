@@ -416,3 +416,29 @@ func TestAGrabChargeTheUserCategorizedIsOnlySuggestedTheReceiptsCategory(t *test
 		t.Errorf("want the receipt's category suggested for the Grab charge\n%s", out.String())
 	}
 }
+
+func TestARunWithSomethingNewInsertsANoticeAndASecondRunNone(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := grabRun(t)
+	l.txs[12] = ledger.Transaction{ID: 12, Date: mustParse("2026-11-02"), Amount: -9, Payee: "UNKNOWN SHOP", Account: ledger.Account{Name: "Card"}, State: ledger.State{NeedsReview: true}}
+	b := &fakeInbox{}
+	notify := &notifier{inbox: b, dir: filepath.Join(t.TempDir(), "reports"), start: time.Now()}
+	var out strings.Builder
+	r := newRunner()
+	r.notify = notify
+	if err := r.run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "to review") {
+		t.Fatalf("first run's notices %+v; want one counting the transaction put in review\n%s", b.notices, out.String())
+	}
+	out.Reset()
+	r = newRunner()
+	r.notify = notify
+	if err := r.run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if len(b.notices) != 1 {
+		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out.String())
+	}
+}

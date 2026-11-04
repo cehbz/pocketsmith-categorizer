@@ -39,18 +39,32 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	rulesPath := fs.String("rules", config.RulesPath(home), "rules file")
 	lookback := fs.Int("lookback", 365, "days back the categorizer re-decides its own work")
 	history := fs.Int("history", 730, "days of history read for suggestions and proposals")
+	notify := fs.Bool("notify", false, "save the report and email the inbox when the run needs you or fails")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("run: unexpected argument %q", fs.Arg(0))
 	}
-	s, err := open(ctx, *configPath, *rulesPath)
+	if !*notify {
+		return scheduled(ctx, home, *configPath, *rulesPath, journalDir, *lookback, *history, nil, out)
+	}
+	n, err := openNotifier(ctx, *configPath, home)
+	if err != nil {
+		return err
+	}
+	return notified(ctx, n, scheduled(ctx, home, *configPath, *rulesPath, journalDir, *lookback, *history, n, out))
+}
+
+// scheduled opens the session and the run's memos and runs, delivering the report through n
+// when it isn't nil.
+func scheduled(ctx context.Context, home, configPath, rulesPath, journalDir string, lookback, history int, n *notifier, out io.Writer) error {
+	s, err := open(ctx, configPath, rulesPath)
 	if err != nil {
 		return err
 	}
 	r := runner{journal: journal.Store{Dir: journalDir}, trips: tripfile.File{List: config.TripsPath(home), Written: config.WrittenTripsPath(home)},
-		lookback: *lookback, history: *history}
+		lookback: lookback, history: history, notify: n}
 	for _, m := range []struct {
 		dst  **memo.Memo
 		path string
@@ -68,7 +82,8 @@ type runner struct {
 	shown, judged, placed *memo.Memo
 	journal               journal.Store
 	trips                 trips.Store
-	lookback, history     int // days back the categorizer re-decides its own work, and of history read
+	lookback, history     int       // days back the categorizer re-decides its own work, and of history read
+	notify                *notifier // with notices on, delivers the report
 }
 
 // run decides, places, flags and applies a run's changes, lists the trips it changed, and
@@ -169,7 +184,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		}
 		amendments = append(amendments, categorize.Change{Charge: c.Charge, Before: prev.After, After: c.After, Source: prev.Source})
 	}
-	err = report.WriteRun(out, report.Run{
+	err = r.deliver(ctx, out, report.Run{
 		RunID: runID, Changes: plan.Changes, Applied: decisions,
 		Corrections: corrections, Amendments: amendments,
 		Undecided: plan.Undecided, Suggestions: suggestions,
@@ -197,6 +212,15 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	remember(judged, j, unwritten)
 	rememberPlacements(placed, pl, unwritten)
 	return errors.Join(applyErr, shown.Save(), judged.Save(), placed.Save())
+}
+
+// deliver writes the run's report to out, or, with notices on, saves it and puts a notice in
+// the inbox when it needs the user.
+func (r runner) deliver(ctx context.Context, out io.Writer, rep report.Run) error {
+	if r.notify == nil {
+		return report.WriteRun(out, rep)
+	}
+	return r.notify.report(ctx, out, rep)
 }
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }
