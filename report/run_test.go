@@ -390,3 +390,48 @@ func TestWriteRunGolden(t *testing.T) {
 	}
 	golden(t, "run.txt", b.String())
 }
+
+func TestTheHTMLReportTintsWhatNeedsTheUserAndMarksCredits(t *testing.T) {
+	refund := rtx(2, "A&B <SHOP>", 3)
+	refund.Amount = 7.3
+	r := Run{
+		At: runAt, Titles: titles,
+		Changes:      []categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 5}, Reason: categorize.Reason{Why: categorize.ByRule, Rule: "CAFE"}}},
+		Applied:      1,
+		Undecided:    []ledger.Transaction{refund},
+		Reasons:      map[int64][]string{2: {attention.NewPayee}},
+		Transactions: map[int64]ledger.Transaction{1: rtx(1, "CAFE", 3), 2: refund},
+	}
+	var b strings.Builder
+	if err := WriteRunHTML(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		"<title>Run 2026-11-04 09:30 · 1 of 1 changes applied</title>",
+		`<h2 class="needs">Needs You</h2>`,
+		"<div class=\"box\">\n<h3>Undecided</h3>",
+		"<h3>Review Reasons</h3>\n<table class=\"muted\">",
+		"<td>A&amp;B &lt;SHOP&gt;</td>",
+		`<td class="amt credit">+7.30</td>`,
+		`<th class="amt">Amount</th>`,
+		"<h2>Applied</h2>",
+		`<td>Phone <span class="arrow">→</span> Food</td>`,
+		`<td class="wide muted">CAFE</td>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("HTML report lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "<div class=\"box\">\n<h3>Review Reasons</h3>") {
+		t.Errorf("Review Reasons is tinted; want it low-key:\n%s", out)
+	}
+}
+
+func TestWriteRunHTMLGolden(t *testing.T) {
+	var b strings.Builder
+	if err := WriteRunHTML(&b, fixtureRun()); err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "run.html", b.String())
+}

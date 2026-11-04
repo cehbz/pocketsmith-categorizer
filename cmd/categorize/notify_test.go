@@ -70,8 +70,12 @@ func TestAReportWithSomethingNewInsertsOneNoticeCarryingIt(t *testing.T) {
 	if err := n.report(context.Background(), &out, r); err != nil {
 		t.Fatal(err)
 	}
-	if len(b.notices) != 1 || b.notices[0].Subject != "Categorizer: 1 transaction to review" || b.notices[0].Body != out.String() {
-		t.Errorf("notices %+v; want one, subject Categorizer: 1 transaction to review, body the report", b.notices)
+	var page strings.Builder
+	if err := report.WriteRunHTML(&page, r); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.notices) != 1 || b.notices[0].Subject != "Categorizer: 1 transaction to review" || b.notices[0].Body != out.String() || b.notices[0].HTML != page.String() {
+		t.Errorf("notices %+v; want one, subject Categorizer: 1 transaction to review, body the report, HTML its page", b.notices)
 	}
 }
 
@@ -92,8 +96,8 @@ func TestAFailedRunInsertsAFailureNoticeNamingTheError(t *testing.T) {
 	if err := notified(context.Background(), n, runErr); !errors.Is(err, runErr) {
 		t.Errorf("notified: %v; want the run's error", err)
 	}
-	if len(b.notices) != 1 || b.notices[0].Subject != "categorize run failed: pocketsmith: GET /me: context deadline exceeded" || !strings.Contains(b.notices[0].Body, runErr.Error()) {
-		t.Errorf("notices %+v; want one failure notice naming the error", b.notices)
+	if len(b.notices) != 1 || b.notices[0].Subject != "categorize run failed: pocketsmith: GET /me: context deadline exceeded" || !strings.Contains(b.notices[0].Body, runErr.Error()) || b.notices[0].HTML != "" {
+		t.Errorf("notices %+v; want one plain-text failure notice naming the error", b.notices)
 	}
 	if err := notified(context.Background(), n, nil); err != nil || len(b.notices) != 1 {
 		t.Errorf("notified(nil): %v with %d notices; want nil and no new notice", err, len(b.notices))

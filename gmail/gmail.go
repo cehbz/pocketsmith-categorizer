@@ -9,9 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/mail"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -32,7 +35,8 @@ const InsertScope = "https://www.googleapis.com/auth/gmail.insert"
 // Notice is an email for the mailbox's owner.
 type Notice struct {
 	Subject string
-	Body    string
+	Body    string // plain text
+	HTML    string // the same as an HTML page; empty for a plain-text notice
 }
 
 // ErrAuth is a token that is missing, expired without a way to refresh it, revoked, or
@@ -142,19 +146,35 @@ func (c *Client) Insert(ctx context.Context, n Notice) error {
 	return c.do(req, nil)
 }
 
-// compose is n as a plain-text message from and to addr: its subject encoded for any
-// alphabet, its body in base64 lines.
+// compose is n as a message from and to addr: its subject encoded for any alphabet, its body
+// in base64 lines. A notice with HTML is multipart/alternative, its plain text first.
 func compose(addr string, n Notice, now time.Time) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n",
+	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\n",
 		addr, addr, mime.QEncoding.Encode("utf-8", n.Subject), now.Format(time.RFC1123Z))
-	enc := base64.StdEncoding.EncodeToString([]byte(n.Body))
+	if n.HTML == "" {
+		b.WriteString("Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n")
+		writeBase64(&b, n.Body)
+		return b.Bytes()
+	}
+	mw := multipart.NewWriter(&b) // writes to b, which can't fail
+	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=%s\r\n\r\n", mw.Boundary())
+	for _, p := range []struct{ contentType, body string }{{"text/plain", n.Body}, {"text/html", n.HTML}} {
+		w, _ := mw.CreatePart(textproto.MIMEHeader{"Content-Type": {p.contentType + "; charset=UTF-8"}, "Content-Transfer-Encoding": {"base64"}})
+		writeBase64(w, p.body)
+	}
+	mw.Close()
+	return b.Bytes()
+}
+
+// writeBase64 writes s in base64 lines of 76 characters.
+func writeBase64(w io.Writer, s string) {
+	enc := base64.StdEncoding.EncodeToString([]byte(s))
 	for len(enc) > 76 {
-		b.WriteString(enc[:76] + "\r\n")
+		io.WriteString(w, enc[:76]+"\r\n")
 		enc = enc[76:]
 	}
-	b.WriteString(enc + "\r\n")
-	return b.Bytes()
+	io.WriteString(w, enc+"\r\n")
 }
 
 // do sends req and reads its response into out, unless out is nil. A failure reports the

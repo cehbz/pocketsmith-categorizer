@@ -84,6 +84,10 @@ func describe(t ledger.Transaction) string {
 // what is there for reference, each section left out when empty.
 func WriteRun(w io.Writer, r Run) error { return r.layout().writeText(w) }
 
+// WriteRunHTML prints a run's report as an HTML page: the same sections as WriteRun's, as
+// tables.
+func WriteRunHTML(w io.Writer, r Run) error { return r.layout().writeHTML(w) }
+
 // layout is r's report laid out for the user.
 func (r Run) layout() doc {
 	d := doc{header: fmt.Sprintf("Run %s · %d of %d changes applied", r.At.Format("2006-01-02 15:04"), r.Applied+r.FlagsApplied, len(r.Changes)+len(r.Flags))}
@@ -91,10 +95,10 @@ func (r Run) layout() doc {
 		d.notes = append(d.notes, fmt.Sprintf("Grab receipts matched on stale rates: %v", r.Receipts.StaleRates))
 	}
 	byRule, onTrips := r.amendments()
-	d.add("Needs You", r.proposals(), r.ruleAmendments(byRule), r.suggestions(),
+	d.add("Needs You", true, r.proposals(), r.ruleAmendments(byRule), r.suggestions(),
 		r.tripsAdded(), r.tripHints(), r.tripVersions(), r.unreadable(), r.notApplied(), r.undecided(), r.reviewReasons())
-	d.add("Applied", r.applied()...)
-	d.add("Reference", r.tripCorrections(onTrips), r.corrections(), r.income(), r.unmatched())
+	d.add("Applied", false, r.applied()...)
+	d.add("Reference", false, r.tripCorrections(onTrips), r.corrections(), r.income(), r.unmatched())
 	return d
 }
 
@@ -281,7 +285,9 @@ func (r Run) reviewReasons() section {
 		}
 		t.rows = append(t.rows, append(r.charge(id), strings.Join(phrases, ", ")))
 	}
-	return tabled("Review Reasons", t)
+	s := tabled("Review Reasons", t)
+	s.quiet = true
+	return s
 }
 
 // applied groups the changes r applied by why they were made.

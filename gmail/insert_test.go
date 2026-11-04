@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/mail"
@@ -105,5 +106,37 @@ func TestAnInsertRefusedForItsScopeSaysToRunAuth(t *testing.T) {
 	c := &Client{BaseURL: b.serve(t).URL, HTTP: http.DefaultClient}
 	if err := c.Insert(context.Background(), Notice{Subject: "s", Body: "b"}); !errors.Is(err, ErrAuth) {
 		t.Errorf("Insert: %v; want ErrAuth", err)
+	}
+}
+
+func TestANoticeWithHTMLIsMultipartAlternative(t *testing.T) {
+	b := &inbox{owner: "owner@example.com"}
+	c := &Client{BaseURL: b.serve(t).URL, HTTP: http.DefaultClient}
+	n := Notice{Subject: "s", Body: "Run x · 1 of 1 changes applied\n  ร้านกาแฟ −3.00\n", HTML: "<!DOCTYPE html>\n<p>ร้านกาแฟ <b>−3.00</b></p>\n"}
+	if err := c.Insert(context.Background(), n); err != nil {
+		t.Fatal(err)
+	}
+	m, err := mail.ReadMessage(strings.NewReader(b.raws[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	media, params, err := mime.ParseMediaType(m.Header.Get("Content-Type"))
+	if err != nil || media != "multipart/alternative" {
+		t.Fatalf("Content-Type %q, %v; want multipart/alternative", m.Header.Get("Content-Type"), err)
+	}
+	r := multipart.NewReader(m.Body, params["boundary"])
+	for _, want := range []struct{ contentType, body string }{{"text/plain; charset=UTF-8", n.Body}, {"text/html; charset=UTF-8", n.HTML}} {
+		p, err := r.NextRawPart()
+		if err != nil {
+			t.Fatalf("part %s: %v", want.contentType, err)
+		}
+		enc, _ := io.ReadAll(p)
+		body, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(string(enc), "\r\n", ""))
+		if ct, te := p.Header.Get("Content-Type"), p.Header.Get("Content-Transfer-Encoding"); ct != want.contentType || te != "base64" || err != nil || string(body) != want.body {
+			t.Errorf("part %q %q: body %q, %v; want %q in base64", ct, te, body, err, want.body)
+		}
+	}
+	if _, err := r.NextPart(); err != io.EOF {
+		t.Errorf("after two parts: %v; want the end", err)
 	}
 }

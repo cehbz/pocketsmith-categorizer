@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/config"
@@ -49,7 +50,7 @@ func openNotifier(ctx context.Context, configPath, home string) (*notifier, erro
 }
 
 // report saves r, copies it to out, and puts it in the inbox when it has something new for
-// the user.
+// the user: the text report as the plain part, its HTML page as the other.
 func (n *notifier) report(ctx context.Context, out io.Writer, r report.Run) error {
 	var b bytes.Buffer
 	if err := report.WriteRun(&b, r); err != nil {
@@ -72,7 +73,11 @@ func (n *notifier) report(ctx context.Context, out io.Writer, r report.Run) erro
 	if !due {
 		return nil
 	}
-	return n.inbox.Insert(ctx, gmail.Notice{Subject: subject, Body: b.String()})
+	var page strings.Builder
+	if err := report.WriteRunHTML(&page, r); err != nil {
+		return err
+	}
+	return n.inbox.Insert(ctx, gmail.Notice{Subject: subject, Body: b.String(), HTML: page.String()})
 }
 
 // failed puts a notice of a run that failed with err in the inbox.

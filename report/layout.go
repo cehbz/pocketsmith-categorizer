@@ -13,15 +13,18 @@ type doc struct {
 	groups []group
 }
 
-// group is one of a report's parts, such as Needs You: its sections, left out when empty.
+// group is one of a report's parts, such as Needs You: its sections, left out when empty, and
+// whether they need the user.
 type group struct {
 	title    string
+	needs    bool
 	sections []section
 }
 
-// section is a titled list of parts.
+// section is a titled list of parts; a quiet one is shown low-key.
 type section struct {
 	title string
+	quiet bool
 	parts []part
 }
 
@@ -60,8 +63,8 @@ func cols(names []string, right ...string) []column {
 }
 
 // add appends a group of the sections that aren't empty, unless all are.
-func (d *doc) add(title string, sections ...section) {
-	var g group
+func (d *doc) add(title string, needs bool, sections ...section) {
+	g := group{needs: needs}
 	for _, s := range sections {
 		if len(s.parts) > 0 {
 			g.sections = append(g.sections, s)
