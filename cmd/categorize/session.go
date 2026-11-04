@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -22,6 +21,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/plaid"
 	"github.com/cehbz/pocketsmith-categorizer/pocketsmith"
+	"github.com/cehbz/pocketsmith-categorizer/retry"
 	"github.com/cehbz/pocketsmith-categorizer/rules"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
@@ -61,7 +61,7 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: &http.Client{Timeout: 30 * time.Second}}}
+	l := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: retry.Client(30 * time.Second)}}
 	cats, err := l.Categories(ctx)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	}
 	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc), attention: set,
 		trips: tripSet, card: card, accounts: slices.Sorted(maps.Values(cfg.Plaid.Accounts)), calendar: cal,
-		receipts: mail, rates: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: &http.Client{Timeout: 30 * time.Second}},
+		receipts: mail, rates: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: retry.Client(30 * time.Second)},
 		grabPayees: cfg.Payees, grabPolicy: cfg.Policy(), loc: loc}, nil
 }
 
@@ -110,7 +110,7 @@ func openCard(ctx context.Context, p config.Plaid) (plaid.Card, error) {
 		}
 		secrets[i] = s
 	}
-	c := &plaid.Client{BaseURL: plaid.BaseURL, ClientID: secrets[0], Secret: secrets[1], AccessToken: secrets[2], HTTP: &http.Client{Timeout: 60 * time.Second}}
+	c := &plaid.Client{BaseURL: plaid.BaseURL, ClientID: secrets[0], Secret: secrets[1], AccessToken: secrets[2], HTTP: retry.Client(60 * time.Second)}
 	return plaid.Card{Client: c, Accounts: p.Accounts}, nil
 }
 
@@ -121,7 +121,7 @@ func openGoogle(ctx context.Context, c config.Calendar) (*gcal.Client, *gmail.Cl
 	if err != nil {
 		return nil, nil, err
 	}
-	h, err := gcal.Authorized(ctx, conf, gcal.TokenFile(c.TokenRef), &http.Client{Timeout: 60 * time.Second})
+	h, err := gcal.Authorized(ctx, conf, gcal.TokenFile(c.TokenRef), retry.Client(60*time.Second))
 	if err != nil {
 		return nil, nil, err
 	}

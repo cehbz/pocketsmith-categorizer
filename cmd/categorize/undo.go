@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"io"
-	"net/http"
 	"os"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/memo"
 	"github.com/cehbz/pocketsmith-categorizer/pocketsmith"
 	"github.com/cehbz/pocketsmith-categorizer/report"
+	"github.com/cehbz/pocketsmith-categorizer/retry"
 	"github.com/cehbz/pocketsmith-categorizer/tripfile"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
@@ -60,7 +60,7 @@ func undoCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ps := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: &http.Client{Timeout: 30 * time.Second}}}
+	ps := &pocketsmith.Ledger{API: &api.Client{BaseURL: api.DefaultBaseURL, Key: key, HTTP: retry.Client(30 * time.Second)}}
 	read := &reading{Ledger: ps, charges: map[int64]ledger.Charge{}}
 	changes, skipped, unchanged, err := categorize.Undo(ctx, read, entries)
 	if err != nil {
