@@ -172,10 +172,14 @@ func (p part) to() string {
 	return ""
 }
 
-// text is the body of p's first text/plain part, else the text of its first text/html part.
+// text is the body of p's first text/plain part, else, when there is none or its body is
+// blank, the text of its first text/html part.
 func (p part) text() (string, error) {
 	if plain := p.first("text/plain"); plain != nil {
-		return plain.decode()
+		body, err := plain.decode()
+		if err != nil || strings.TrimSpace(body) != "" {
+			return body, err
+		}
 	}
 	if h := p.first("text/html"); h != nil {
 		body, err := h.decode()

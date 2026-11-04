@@ -12,6 +12,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/fx"
 	"github.com/cehbz/pocketsmith-categorizer/gmail"
+	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
@@ -118,6 +119,28 @@ func TestAReceiptNoChargeMatchesIsReported(t *testing.T) {
 	}
 	if len(receipts.Unmatched) != 1 || receipts.Unmatched[0].Booking != "A-TESTRIDE0001" {
 		t.Errorf("unmatched = %+v; want the ride", receipts.Unmatched)
+	}
+}
+
+func TestReceiptsAreReportedInTheLedgersTimeZone(t *testing.T) {
+	bangkok, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := &fakeMailbox{messages: []gmail.Message{
+		{ID: "m1", Received: at("2026-11-01T20:00:00Z"), To: "a@example.com", Text: rideReceipt},
+		{ID: "m2", Received: at("2026-11-01T20:00:00Z"), To: "a@example.com", Text: noTotal},
+	}}
+	s := &session{today: mustParse("2026-11-03"), receipts: box, rates: rates(t, "35"), grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: bangkok}
+	_, receipts, err := readGrab(context.Background(), s, nil, mustParse("2026-10-01"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts.Unmatched) != 1 || receipts.Unmatched[0].At.Location() != bangkok || receipts.Unmatched[0].At.Format("2006-01-02 15:04") != "2026-11-02 03:00" {
+		t.Errorf("unmatched = %+v; want the ride paid at 2026-11-02 03:00 Bangkok time", receipts.Unmatched)
+	}
+	if len(receipts.Unreadable) != 1 || day.Format(receipts.Unreadable[0].Received) != "2026-11-02" {
+		t.Errorf("unreadable = %+v; want the receipt without a total, received 2026-11-02", receipts.Unreadable)
 	}
 }
 

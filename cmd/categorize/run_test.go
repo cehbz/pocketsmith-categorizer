@@ -40,10 +40,11 @@ func TestFlagsKeepTheRulesSource(t *testing.T) {
 	}
 }
 
-// fakeLedger is a ledger in memory that counts its updates.
+// fakeLedger is a ledger in memory that counts its updates and records whom they updated.
 type fakeLedger struct {
 	txs     map[int64]ledger.Transaction
 	updates int
+	updated []int64
 }
 
 func (l *fakeLedger) Transactions(_ context.Context, first, last time.Time, needsReview bool) ([]ledger.Transaction, error) {
@@ -67,6 +68,7 @@ func (l *fakeLedger) Update(_ context.Context, id int64, s ledger.State) error {
 	t.State = s
 	l.txs[id] = t
 	l.updates++
+	l.updated = append(l.updated, id)
 	return nil
 }
 
@@ -391,5 +393,26 @@ func TestAMailboxFailureFailsTheRunBeforeAnythingIsApplied(t *testing.T) {
 	var out strings.Builder
 	if err := newRunner().run(context.Background(), s, &out); !errors.Is(err, gmail.ErrAuth) || l.updates != 0 || store.saves != 0 {
 		t.Errorf("run: %v after %d updates and %d trip list saves; want the mailbox's error and nothing applied\n%s", err, l.updates, store.saves, out.String())
+	}
+}
+
+func TestAGrabChargeTheUserCategorizedIsOnlySuggestedTheReceiptsCategory(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := grabRun(t)
+	s.titles = map[ledger.CategoryID]string{30: "Travel", grabPolicy.Ride: "Rides"}
+	charge := l.txs[11]
+	charge.State = ledger.State{Category: 30}
+	l.txs[11] = charge
+	l.txs[12] = ledger.Transaction{ID: 12, Date: mustParse("2026-09-10"), Amount: -3, Payee: "GRAB", Account: charge.Account, State: ledger.State{Category: 30}} // GRAB isn't a new payee
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if got := l.txs[11].State; !reflect.DeepEqual(got, charge.State) || slices.Contains(l.updated, 11) {
+		t.Errorf("Grab charge %+v after updates to %v; want it left in Travel and not updated\n%s", got, l.updated, out.String())
+	}
+	_, suggestions, _ := strings.Cut(out.String(), "suggestions (1):\n")
+	if !strings.Contains(suggestions, "Travel -> Rides (grab A-TESTRIDE0001)") {
+		t.Errorf("want the receipt's category suggested for the Grab charge\n%s", out.String())
 	}
 }

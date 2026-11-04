@@ -48,9 +48,10 @@ func readGrab(ctx context.Context, s *session, txs []ledger.Transaction, from ti
 	var receipts report.Receipts
 	var payments []grab.Payment
 	for _, m := range msgs {
-		p, err := grab.ReadReceipt(m.Text, m.Received, m.To)
+		received := m.Received.In(s.loc)
+		p, err := grab.ReadReceipt(m.Text, received, m.To)
 		if err != nil {
-			receipts.Unreadable = append(receipts.Unreadable, report.Unreadable{Received: m.Received, Why: err.Error()})
+			receipts.Unreadable = append(receipts.Unreadable, report.Unreadable{Received: received, Why: err.Error()})
 			continue
 		}
 		payments = append(payments, p)
