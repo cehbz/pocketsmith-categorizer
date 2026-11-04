@@ -1,6 +1,7 @@
 package report
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,25 @@ func TestWriteRunListsTheReceiptsItCouldntUseAfterTheChanges(t *testing.T) {
 		"trips added (0):\n"
 	if !strings.Contains(b.String(), want) {
 		t.Errorf("report lacks %q:\n%s", want, b.String())
+	}
+}
+
+func TestWriteRunSaysWhenTheReceiptsWereMatchedOnStaleRates(t *testing.T) {
+	r := Run{RunID: "RUN1", Titles: titles, Receipts: Receipts{StaleRates: errors.New("rates kept through 2026-11-03: frankfurter: 522")}}
+	var b strings.Builder
+	if err := WriteRun(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	want := "changed (0):\ngrab receipts matched on stale rates: rates kept through 2026-11-03: frankfurter: 522\ngrab receipts not read (0):\n"
+	if !strings.Contains(b.String(), want) {
+		t.Errorf("report lacks %q:\n%s", want, b.String())
+	}
+	b.Reset()
+	if err := WriteRun(&b, Run{RunID: "RUN1", Titles: titles}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "stale") {
+		t.Errorf("report with fetched rates mentions stale ones:\n%s", b.String())
 	}
 }
 

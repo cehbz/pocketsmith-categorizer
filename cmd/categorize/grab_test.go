@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -154,5 +156,26 @@ func TestWithoutReceiptsTheRatesArentFetched(t *testing.T) {
 	}
 	if _, ok := layer.Decide(tx); ok || src.fetches != 0 {
 		t.Errorf("decided %t after %d fetches; want an abstention and no fetch", ok, src.fetches)
+	}
+}
+
+func TestReceiptsMatchedOnKeptRatesSaySo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rates.json")
+	if err := os.WriteFile(path, []byte(`{"2026-10-01": 35}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "origin down", http.StatusBadGateway)
+	}))
+	defer down.Close()
+	box := &fakeMailbox{messages: []gmail.Message{{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}
+	s := &session{today: mustParse("2026-11-03"), receipts: box, rates: fx.Cache{Path: path, Source: fx.Frankfurter{BaseURL: down.URL, HTTP: down.Client()}}, grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: time.UTC}
+	tx := ledger.Transaction{ID: 1, Date: mustParse("2026-11-02"), Amount: -2, Payee: "GRAB"}
+	layer, receipts, err := readGrab(context.Background(), s, []ledger.Transaction{tx}, mustParse("2026-10-01"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := layer.Decide(tx); !ok || receipts.StaleRates == nil {
+		t.Errorf("decided %t, stale rates %v; want the charge decided on the kept rate, and the receipts saying so", ok, receipts.StaleRates)
 	}
 }

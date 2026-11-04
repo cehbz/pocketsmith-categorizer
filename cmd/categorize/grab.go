@@ -64,6 +64,7 @@ func readGrab(ctx context.Context, s *session, txs []ledger.Transaction, from ti
 	if err != nil {
 		return grabLayer{}, report.Receipts{}, err
 	}
+	receipts.StaleRates = rates.Stale
 	var charges []ledger.Charge
 	for _, t := range txs {
 		if slices.Contains(s.grabPayees, t.Payee) {

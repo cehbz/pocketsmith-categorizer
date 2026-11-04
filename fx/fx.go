@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -20,6 +21,31 @@ const DefaultBaseURL = "https://api.frankfurter.dev/v1"
 type Table struct {
 	dates []time.Time
 	rates []float64
+	Stale error // why the rates after the last day couldn't be fetched; nil when they were
+}
+
+// Through is the last day with a rate, zero when there is none.
+func (t Table) Through() time.Time {
+	if len(t.dates) == 0 {
+		return time.Time{}
+	}
+	return t.dates[len(t.dates)-1]
+}
+
+// with is t with u's rates added, u's replacing t's on the days both have.
+func (t Table) with(u Table) Table {
+	byDay := make(map[time.Time]float64, len(t.dates)+len(u.dates))
+	for _, s := range []Table{t, u} {
+		for i, d := range s.dates {
+			byDay[d] = s.rates[i]
+		}
+	}
+	var out Table
+	for _, d := range slices.SortedFunc(maps.Keys(byDay), time.Time.Compare) {
+		out.dates = append(out.dates, d)
+		out.rates = append(out.rates, byDay[d])
+	}
+	return out
 }
 
 // THBPerUSD returns the latest rate on or before d.

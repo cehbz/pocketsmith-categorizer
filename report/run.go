@@ -53,6 +53,7 @@ type Run struct {
 type Receipts struct {
 	Unreadable []Unreadable
 	Unmatched  []grab.Payment
+	StaleRates error // why the receipts were matched on kept exchange rates; nil when the rates were fetched
 }
 
 // Unreadable is a receipt that arrived at Received and couldn't be read, and why; ID is its
@@ -84,6 +85,9 @@ func WriteRun(w io.Writer, r Run) error {
 	p.f("changed (%d):\n", r.Applied)
 	for _, c := range r.Changes[:r.Applied] {
 		p.f("  %s: %s -> %s (%s)\n", describe(r.Transactions[c.Charge]), title(r.Titles, c.Before.Category), title(r.Titles, c.After.Category), c.Source)
+	}
+	if r.Receipts.StaleRates != nil {
+		p.f("grab receipts matched on stale rates: %v\n", r.Receipts.StaleRates)
 	}
 	p.f("grab receipts not read (%d):\n", len(r.Receipts.Unreadable))
 	for _, u := range r.Receipts.Unreadable {

@@ -409,6 +409,11 @@ func WrittenTripsPath(home string) string {
 	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "trips-written.toml")
 }
 
+// RatesPath is the exchange rates kept between runs, under home.
+func RatesPath(home string) string {
+	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "rates.json")
+}
+
 // PlacedPath is the record of the trip placements made, under home.
 func PlacedPath(home string) string {
 	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "placed.json")

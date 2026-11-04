@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -90,13 +91,17 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
 	titles := make(map[ledger.CategoryID]string, len(cats))
 	for _, c := range cats {
 		titles[c.ID] = c.Title
 	}
 	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc), attention: set,
 		trips: tripSet, card: card, accounts: slices.Sorted(maps.Values(cfg.Plaid.Accounts)), calendar: cal,
-		receipts: mail, rates: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: retry.Client(30 * time.Second)},
+		receipts: mail, rates: fx.Cache{Path: config.RatesPath(home), Source: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: retry.Client(30 * time.Second)}},
 		grabPayees: cfg.Payees, grabPolicy: cfg.Policy(), loc: loc}, nil
 }
 

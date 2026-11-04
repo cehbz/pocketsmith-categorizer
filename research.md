@@ -14,6 +14,20 @@ Fit against three Grab statements of two accounts (May–Oct 2026; 509 trips, 50
 - Frankfurter is documented and keyless: `https://api.frankfurter.dev/v1/{start}..{end}?from=USD&to=THB`, business days only (2026-04-24 is followed by 2026-04-27). Yahoo's chart endpoint is unofficial. Wise's `wise.com/rates/history+live` is undocumented and returns 400 for `unit=day` with `length` 90 or more; `unit=month&length=7` works.
 - A 2% tolerance keeps 470 of the 478 pairs found under the 5% cap.
 
+## Rate drift
+
+Yahoo `THB=X` daily closes, 1,300 trading days to 2026-11-04: absolute change in USD/THB over a span.
+
+| Trading days | Median | p95 | p99 | Max |
+|---|---|---|---|---|
+| 1 | 0.31% | 1.02% | 1.49% | 2.61% |
+| 3 | 0.55% | 1.67% | 2.37% | 3.96% |
+| 5 | 0.74% | 2.12% | 3.08% | 4.87% |
+| 10 | 1.06% | 3.14% | 4.26% | 6.24% |
+| 20 | 1.56% | 4.76% | 6.03% | 8.48% |
+
+- Against the 2% tolerance, a rate a day or two old matches nearly as well as the day's; a week old, about 5% of days drift past it.
+
 ## Posting window
 
 ECB rates, 2% tolerance, greedy matching:
