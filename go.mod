@@ -6,5 +6,6 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/cehbz/munkres v0.0.0-20261029130144-1ec8b6c3a159
 	github.com/cehbz/pocketsmith v0.3.0
+	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.37.0
 )
