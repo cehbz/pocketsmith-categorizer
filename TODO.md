@@ -1,11 +1,14 @@
 # TODO
 
 - Move the Go repos still declaring `github.com/charles-haynes/...` module paths to `github.com/cehbz/...`. Mechanical (path rewrite, build, test, one commit each): html2bbcode, check_space (`/v2`), strsim, ratelimiter. Each needs a decision first: docconv (fork, 24 references; fix or archive), whatdb (imports archived whatapi; unarchive whatapi or leave the redirect), gazelle (doesn't build: `replace` to sibling `../discogs` and `../whatapi`, and the old discogs library is gone; archive or recover).
-- Evidence layer: read Gmail through our own REST client for Grab receipts, travel confirmations and Wise transfer recipients. A Wise debit on Checking is sometimes a top-up of a THB balance that later funds several transfers, so it has no single recipient.
-- Extract the Google OAuth and API client the categorizer shares with pkm watcher into a common module, and give each app its own OAuth client registration; the categorizer reuses pkm watcher's for now.
-- Automatic runs: schedule `categorize run`, retrying the PocketSmith timeouts seen in acceptance (30 s with no response headers, on a PUT and on `GET /me`).
+- Evidence layer: read travel confirmations and Wise transfer recipients from Gmail, as the run reads Grab receipts. A Wise debit on Checking is sometimes a top-up of a THB balance that later funds several transfers, so it has no single recipient.
+- Extract the Google OAuth and API client the categorizer shares with pkm watcher into a common module, and give each app its own OAuth client registration; the categorizer reuses pkm watcher's for now. The OAuth code is in `gcal` and the token file is `calendar-token.json`, though both now serve Gmail too.
+- Automatic runs: schedule `categorize run`, retrying the PocketSmith timeouts seen in acceptance (30 s with no response headers, on a PUT and on `GET /me`). A Frankfurter outage fails the run as well.
 - Grab and Patreon can include widely varying amounts under a single payee, which can trigger `attention-large`; consider adding more context to disambiguate.
 - Unattended secrets through a 1Password service account: a vault holding only the categorizer's secrets, the token in the Keychain, `op` reading without a prompt. Owner-only files hold them now. Plan eligibility for service accounts is unverified.
 - Rename the Big category and its subcategories to Trips, with the config's `[trips.big]` table, so nothing reads `trips.trips`.
 - Trip kinds took two runs to settle: the run after the back-fill moved some trip charges between Big subcategories (a museum, an airport food court and a restaurant between Discretionary and Food, a ground-transport booking from Lodging to Transport, parking and valet to Transport), and the run after that applied nothing. Cause not investigated. Kind by merchant code also files taxi apps under Discretionary and a theme park under Lodging.
 - Two back-filled charges moved from Charity to Big stayed there after Charity became a stay-home category.
+- Five Grab receipts from 2026-10-28 to 2026-11-02 match no charge, though every Grab charge is on one card; two are a booking's second receipt whose first matched. Not investigated.
+- Each run reads the lookback year's Grab receipts one request per message, and lists every unmatched receipt again, including those whose charge hasn't posted yet.
+- `cmd/categorize` and `cmd/cleanup` each carry the same `period` helper.
