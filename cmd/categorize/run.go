@@ -12,6 +12,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
+	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/journal"
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -184,6 +185,18 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		}
 		amendments = append(amendments, categorize.Change{Charge: c.Charge, Before: prev.After, After: c.After, Source: prev.Source})
 	}
+	var newHints []string
+	for _, h := range hints {
+		if k := hintKey(h); !shown.Seen(k) {
+			newHints = append(newHints, k)
+		}
+	}
+	var newUnreadable []string
+	for _, u := range receipts.Unreadable {
+		if k := unreadableKey(u); !shown.Seen(k) {
+			newUnreadable = append(newUnreadable, k)
+		}
+	}
 	err = r.deliver(ctx, out, report.Run{
 		RunID: runID, Changes: plan.Changes, Applied: decisions,
 		Corrections: corrections, Amendments: amendments,
@@ -193,7 +206,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
 		TripsAdded: withEvidence(listed.Added, inferred), TripVersions: trips.Without(pl.Versions, trips.Names(listing.Added)), Hints: hints,
-		Receipts: receipts,
+		Receipts: receipts, NewHints: len(newHints), NewUnreadable: len(newUnreadable),
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)
@@ -208,6 +221,9 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	}
 	for _, p := range proposals {
 		shown.Add(p.ID())
+	}
+	for _, k := range append(newHints, newUnreadable...) {
+		shown.Add(k)
 	}
 	remember(judged, j, unwritten)
 	rememberPlacements(placed, pl, unwritten)
@@ -224,6 +240,14 @@ func (r runner) deliver(ctx context.Context, out io.Writer, rep report.Run) erro
 }
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }
+
+// hintKey remembers that a notice counted h: the trip the user edited and the inferred span.
+func hintKey(h trips.Hint) string {
+	return fmt.Sprintf("hint %s %s..%s", h.Edited.Version(), day.Format(h.Inferred.From), day.Format(h.Inferred.To))
+}
+
+// unreadableKey remembers that a notice counted u, by its message.
+func unreadableKey(u report.Unreadable) string { return "unreadable " + u.ID }
 
 // inheritSources gives each flag on a categorizer-owned transaction the Source of the
 // change that last set it, so the journal keeps naming the rule behind the category.

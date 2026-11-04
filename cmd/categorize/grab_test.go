@@ -104,7 +104,7 @@ func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) 
 			t.Errorf("Decide(%d) = %+v; want an abstention", tx.ID, got)
 		}
 	}
-	want := []report.Unreadable{{Received: at("2026-10-29T08:00:00Z"), Why: "no total"}}
+	want := []report.Unreadable{{ID: "m3", Received: at("2026-10-29T08:00:00Z"), Why: "no total"}}
 	if !reflect.DeepEqual(receipts.Unreadable, want) || len(receipts.Unmatched) != 0 {
 		t.Errorf("receipts = %+v; want %+v unreadable and none unmatched", receipts, want)
 	}

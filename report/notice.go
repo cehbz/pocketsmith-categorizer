@@ -6,8 +6,10 @@ import (
 )
 
 // Notice is the subject of an email about r, and whether r is due one: whether a section new
-// this run isn't empty. Standing lists (the undecided, receipts matching no charge, income)
-// and what the run did for the user (changes, corrections) make no notice.
+// this run isn't empty. Trip hints and unreadable receipts recur every run, so only those no
+// earlier run counted (NewHints, NewUnreadable) make one. Standing lists (the undecided,
+// receipts matching no charge, income) and what the run did for the user (changes,
+// corrections) make no notice.
 func Notice(r Run) (subject string, due bool) {
 	var parts []string
 	count := func(n int, one, many string) {
@@ -24,8 +26,8 @@ func Notice(r Run) (subject string, due bool) {
 	count(len(r.Amendments), "rule amendment", "rule amendments")
 	count(len(r.TripsAdded), "trip added", "trips added")
 	count(len(r.TripVersions), "trip renamed or redated", "trips renamed or redated")
-	count(len(r.Hints), "trip hint", "trip hints")
-	count(len(r.Receipts.Unreadable), "receipt not read", "receipts not read")
+	count(r.NewHints, "trip hint", "trip hints")
+	count(r.NewUnreadable, "receipt not read", "receipts not read")
 	if len(parts) == 0 {
 		return "", false
 	}

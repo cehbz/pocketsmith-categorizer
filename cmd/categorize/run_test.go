@@ -442,3 +442,52 @@ func TestARunWithSomethingNewInsertsANoticeAndASecondRunNone(t *testing.T) {
 		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out.String())
 	}
 }
+
+// noticed runs a runner with notices into b and returns its report.
+func noticed(t *testing.T, newRunner func() runner, s *session, b *fakeInbox) string {
+	t.Helper()
+	var out strings.Builder
+	r := newRunner()
+	r.notify = &notifier{inbox: b, dir: filepath.Join(t.TempDir(), "reports"), start: time.Now()}
+	if err := r.run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	return out.String()
+}
+
+func TestAnUnreadableReceiptMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, _ := tripRun(t)
+	s.receipts = &fakeMailbox{messages: []gmail.Message{{ID: "m3", Received: at("2026-10-29T08:00:00Z"), To: "a@example.com", Text: noTotal}}}
+	b := &fakeInbox{}
+	out := noticed(t, newRunner, s, b)
+	if len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "1 receipt not read") {
+		t.Fatalf("first run's notices %+v; want one counting the receipt not read\n%s", b.notices, out)
+	}
+	out = noticed(t, newRunner, s, b)
+	if len(b.notices) != 1 {
+		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out)
+	}
+	if !strings.Contains(out, "grab receipts not read (1):\n  2026-10-29 no total\n") {
+		t.Errorf("second run's report lacks the receipt not read\n%s", out)
+	}
+}
+
+func TestATripHintMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
+	newRunner, store := runners(t)
+	s, _ := tripRun(t)
+	first(t, newRunner, s)
+	store.list = trips.List{{Name: "trip-farcity", From: mustParse("2026-10-06"), To: mustParse("2026-10-07")}}
+	b := &fakeInbox{}
+	out := noticed(t, newRunner, s, b)
+	if len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "1 trip hint") {
+		t.Fatalf("first run's notices %+v; want one counting the trip hint\n%s", b.notices, out)
+	}
+	out = noticed(t, newRunner, s, b)
+	if len(b.notices) != 1 {
+		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out)
+	}
+	if !strings.Contains(out, "trips you edited that inference reaches beyond, left as they are (1):\n  trip-farcity 2026-10-06..2026-10-07: inferred 2026-10-05..2026-10-07\n") {
+		t.Errorf("second run's report lacks the trip hint\n%s", out)
+	}
+}

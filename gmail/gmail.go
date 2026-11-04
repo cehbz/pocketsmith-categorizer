@@ -36,7 +36,7 @@ type Notice struct {
 }
 
 // ErrAuth is a token that is missing, expired without a way to refresh it, revoked, or
-// without the Gmail scope.
+// without the scope the call needs (Scope to read, InsertScope to insert).
 var ErrAuth = errors.New("gmail: no usable token: run categorize auth")
 
 const pageSize = 500

@@ -14,18 +14,20 @@ import (
 
 func TestARunWithSomethingNewIsDueANoticeCountingIt(t *testing.T) {
 	r := Run{
-		Flags:        []categorize.Change{{Charge: 1}, {Charge: 2}, {Charge: 3}},
-		FlagsApplied: 3,
-		Suggestions:  []decide.Suggestion{{}, {}},
-		Proposals:    []learn.Proposal{{}},
-		Amendments:   []categorize.Change{{Charge: 4}},
-		TripsAdded:   []trips.Inferred{{}},
-		TripVersions: []trips.Trip{{}, {}},
-		Hints:        []trips.Hint{{}},
-		Receipts:     Receipts{Unreadable: []Unreadable{{}}},
+		Flags:         []categorize.Change{{Charge: 1}, {Charge: 2}, {Charge: 3}},
+		FlagsApplied:  3,
+		Suggestions:   []decide.Suggestion{{}, {}},
+		Proposals:     []learn.Proposal{{}},
+		Amendments:    []categorize.Change{{Charge: 4}},
+		TripsAdded:    []trips.Inferred{{}},
+		TripVersions:  []trips.Trip{{}, {}},
+		Hints:         []trips.Hint{{}, {}, {}},
+		NewHints:      1,
+		Receipts:      Receipts{Unreadable: []Unreadable{{}, {}, {}}},
+		NewUnreadable: 2,
 	}
 	subject, due := Notice(r)
-	want := "categorize: 3 to review, 2 suggestions, 1 proposed rule, 1 rule amendment, 1 trip added, 2 trips renamed or redated, 1 trip hint, 1 receipt not read"
+	want := "categorize: 3 to review, 2 suggestions, 1 proposed rule, 1 rule amendment, 1 trip added, 2 trips renamed or redated, 1 trip hint, 2 receipts not read"
 	if !due || subject != want {
 		t.Errorf("Notice = %q, %v; want %q, true", subject, due, want)
 	}
@@ -39,6 +41,13 @@ func TestARunWithOnlyStandingListsOrAppliedChangesIsDueNoNotice(t *testing.T) {
 		Undecided:   []ledger.Transaction{{ID: 3}},
 		Receipts:    Receipts{Unmatched: []grab.Payment{{}}},
 	}
+	if subject, due := Notice(r); due {
+		t.Errorf("Notice = %q, true; want no notice", subject)
+	}
+}
+
+func TestHintsAndUnreadableReceiptsAnEarlierRunCountedMakeNoNotice(t *testing.T) {
+	r := Run{Hints: []trips.Hint{{}}, Receipts: Receipts{Unreadable: []Unreadable{{}}}}
 	if subject, due := Notice(r); due {
 		t.Errorf("Notice = %q, true; want no notice", subject)
 	}

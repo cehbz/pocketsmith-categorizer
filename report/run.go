@@ -44,6 +44,8 @@ type Run struct {
 	TripVersions   []trips.Trip                 // listed trips placed under new names or dates
 	Hints          []trips.Hint                 // inferred trips reaching beyond trips the user edited
 	Receipts       Receipts                     // the Grab receipts the run couldn't read or match
+	NewHints       int                          // how many of Hints no earlier run counted
+	NewUnreadable  int                          // how many of Receipts.Unreadable no earlier run counted
 }
 
 // Receipts are the Grab receipts a run couldn't use: those it couldn't read and the payments
@@ -53,8 +55,10 @@ type Receipts struct {
 	Unmatched  []grab.Payment
 }
 
-// Unreadable is a receipt that arrived at Received and couldn't be read, and why.
+// Unreadable is a receipt that arrived at Received and couldn't be read, and why; ID is its
+// message.
 type Unreadable struct {
+	ID       string
 	Received time.Time
 	Why      string
 }
