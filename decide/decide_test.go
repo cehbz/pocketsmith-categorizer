@@ -15,8 +15,10 @@ func (f layerFunc) Decide(t ledger.Transaction) (Decision, bool) { return f(t) }
 
 // to9 decides category 9 for every transaction.
 var to9 = layerFunc(func(ledger.Transaction) (Decision, bool) {
-	return Decision{Category: 9, Label: "auto-rule", Source: "r9"}, true
+	return Decision{Category: 9, Label: "auto-rule", Source: "r9", Reason: r9}, true
 })
+
+var r9 = categorize.Reason{Why: categorize.ByRule, Rule: "r9"}
 
 var abstain = layerFunc(func(ledger.Transaction) (Decision, bool) { return Decision{}, false })
 
@@ -41,8 +43,8 @@ func TestNeedsReviewDecidedIsChanged(t *testing.T) {
 	}
 	c := p.Changes[0]
 	want := ledger.State{Category: 9, Labels: []string{"x", "auto-rule"}}
-	if c.Charge != 1 || !c.After.Equal(want) || c.Source != "r9" {
-		t.Errorf("change = %+v, want after %+v and source r9", c, want)
+	if c.Charge != 1 || !c.After.Equal(want) || c.Source != "r9" || c.Reason != r9 {
+		t.Errorf("change = %+v, want after %+v, source r9 and the rule's reason", c, want)
 	}
 }
 
@@ -247,9 +249,10 @@ func TestFlagsAreInIDOrder(t *testing.T) {
 }
 
 func TestAPlacementOverridesThePlannedDecision(t *testing.T) {
-	p := Plan{Changes: []categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 9, Labels: []string{"auto-rule"}}, Source: "r9"}}}
-	p.Place([]categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 7, Labels: []string{"auto-trip"}}, Source: "trips: t"}})
-	if len(p.Changes) != 1 || p.Changes[0].After.Category != 7 || p.Changes[0].Source != "trips: t" {
+	p := Plan{Changes: []categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 9, Labels: []string{"auto-rule"}}, Source: "r9", Reason: r9}}}
+	onT := categorize.Reason{Why: categorize.OnTrip, Trip: "t"}
+	p.Place([]categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 7, Labels: []string{"auto-trip"}}, Source: "trips: t", Reason: onT}})
+	if len(p.Changes) != 1 || p.Changes[0].After.Category != 7 || p.Changes[0].Source != "trips: t" || p.Changes[0].Reason != onT {
 		t.Errorf("changes = %+v, want the placement", p.Changes)
 	}
 }

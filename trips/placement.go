@@ -28,16 +28,6 @@ const (
 // IsSource reports whether source is a trips placement's.
 func IsSource(source string) bool { return strings.HasPrefix(source, sourcePrefix) }
 
-// SourceTrip is the trip a placement's source names: a trip's name, or Booking.
-func SourceTrip(source string) (string, bool) {
-	rest, ok := strings.CutPrefix(source, sourcePrefix)
-	if !ok {
-		return "", false
-	}
-	name, _, _ := strings.Cut(rest, " ")
-	return name, true
-}
-
 // PlacedPrefix begins the key of every placement of transaction id.
 func PlacedPrefix(id int64) string { return fmt.Sprintf("placed %d ", id) }
 
@@ -99,7 +89,7 @@ func (p Placer) Place(txs []Transaction) Placing {
 		case in:
 			w.charge(t, trip, homeActive[trip.Name])
 		case w.claimed(t):
-			w.set(t, t.State, "") // left as it is, whatever another layer decided
+			w.set(t, t.State, "", categorize.Reason{}) // left as it is, whatever another layer decided
 		case p.Settings.Kinds.Codes.IsBooking(t.Details.Code) && !named(t, p.Settings.Home):
 			w.booking(t)
 		default:
@@ -142,7 +132,7 @@ func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	if trip.VisaRun {
 		labels = append(labels, VisaRun)
 	}
-	w.put(t, w.Settings.Kinds.Big[w.Settings.Kinds.Of(t.Home.Category, t.Details.Code)], labels, trip.Name)
+	w.put(t, w.Settings.Kinds.Big[w.Settings.Kinds.Of(t.Home.Category, t.Details.Code)], labels, sourcePrefix+trip.Name, tripReason(trip.Name))
 	w.Keys[t.ID] = key
 	if flagged {
 		w.flag(t, Placed)
@@ -167,7 +157,7 @@ func (w *placing) booking(t Transaction) {
 	if !first && !t.State.HasLabel(Label) {
 		return
 	}
-	w.put(t, w.Settings.Kinds.Big[w.Settings.Kinds.Of(t.Home.Category, t.Details.Code)], []string{Label, Booking}, Booking)
+	w.put(t, w.Settings.Kinds.Big[w.Settings.Kinds.Of(t.Home.Category, t.Details.Code)], []string{Label, Booking}, sourcePrefix+Booking, tripReason(Booking))
 	w.Keys[t.ID] = key
 	if first && !t.Date.Before(w.Settings.Start) {
 		w.flag(t, Placed)
@@ -232,7 +222,7 @@ func (w *placing) refunds(txs []Transaction) {
 				labels = append(labels, l)
 			}
 		}
-		w.put(t, w.final[c.ID].Category, labels, fmt.Sprintf("%s refund of %d", trip, c.ID))
+		w.put(t, w.final[c.ID].Category, labels, fmt.Sprintf("%s%s refund of %d", sourcePrefix, trip, c.ID), categorize.Reason{Why: categorize.Refund, Trip: trip})
 		w.Keys[t.ID] = key
 		switch {
 		case !first:
@@ -320,9 +310,14 @@ func (w *placing) onTrip(s ledger.State) (string, bool) {
 }
 
 // put puts t in category with labels, keeping its review flag and its user's labels.
-func (w *placing) put(t Transaction, category ledger.CategoryID, labels []string, trip string) {
+func (w *placing) put(t Transaction, category ledger.CategoryID, labels []string, source string, reason categorize.Reason) {
 	after := ledger.State{Category: category, NeedsReview: t.State.NeedsReview, Labels: append(w.strip(t.Home.UserLabels()), labels...)}
-	w.set(t, after, sourcePrefix+trip)
+	w.set(t, after, source, reason)
+}
+
+// tripReason is the reason for placing a charge on trip, a trip's name or Booking.
+func tripReason(trip string) categorize.Reason {
+	return categorize.Reason{Why: categorize.OnTrip, Trip: trip}
 }
 
 // revert returns a transaction the trips layer placed to its origin; without one, it drops
@@ -341,20 +336,20 @@ func (w *placing) revert(t Transaction) bool {
 			after.Labels = append(after.Labels, l)
 		}
 	}
-	w.set(t, after, revertSource)
+	w.set(t, after, revertSource, categorize.Reason{Why: categorize.OffTrip})
 	return true
 }
 
 // hold leaves a transaction the trips layer placed as it is, whatever another layer decided.
 func (w *placing) hold(t Transaction) {
 	if t.State.HasLabel(Label) {
-		w.set(t, t.State, "")
+		w.set(t, t.State, "", categorize.Reason{})
 	}
 }
 
-func (w *placing) set(t Transaction, after ledger.State, source string) {
+func (w *placing) set(t Transaction, after ledger.State, source string, reason categorize.Reason) {
 	w.final[t.ID] = after
-	w.Changes = append(w.Changes, categorize.Change{Charge: t.ID, Before: t.State, After: after, Source: source})
+	w.Changes = append(w.Changes, categorize.Change{Charge: t.ID, Before: t.State, After: after, Source: source, Reason: reason})
 }
 
 func (w *placing) flag(t Transaction, reason string) {

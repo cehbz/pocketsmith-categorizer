@@ -75,8 +75,8 @@ func unchanged(t *testing.T, p Placing, id int64) {
 func TestAChargeAtANewPlaceOnATripGoesToItsKindsBigSubcategory(t *testing.T) {
 	p := placer(abroad).Place([]Transaction{txn(1, "2026-10-10", -100, "HOTEL", "7011", ledger.State{Category: 7, NeedsReview: true})})
 	wantState(t, p, 1, ledger.State{Category: 102, NeedsReview: true, Labels: []string{Label, "trip-abroad"}})
-	if c, _ := placed(p, 1); c.Source != "trips: trip-abroad" {
-		t.Errorf("source = %q, want trips: trip-abroad", c.Source)
+	if c, _ := placed(p, 1); c.Source != "trips: trip-abroad" || c.Reason != (categorize.Reason{Why: categorize.OnTrip, Trip: "trip-abroad"}) {
+		t.Errorf("source = %q, reason %+v; want trips: trip-abroad, on the trip", c.Source, c.Reason)
 	}
 	if !slices.Equal(p.Reasons[1], []string{Placed}) || p.Keys[1] != "placed 1 trip-abroad 2026-10-05..2026-10-30" {
 		t.Errorf("reasons %v, key %q", p.Reasons[1], p.Keys[1])
@@ -251,8 +251,8 @@ func TestAChargeLeavingEveryTripReturnsToItsOrigin(t *testing.T) {
 	wantState(t, p, 1, ledger.State{Category: 5, Labels: []string{"x"}})
 	wantState(t, p, 2, ledger.State{Category: 103, Labels: []string{"x"}})
 	notPlaced(t, p, 3)
-	if c, _ := placed(p, 1); c.Source != "revert trips" || IsSource(c.Source) {
-		t.Errorf("revert source = %q", c.Source)
+	if c, _ := placed(p, 1); c.Source != "revert trips" || IsSource(c.Source) || c.Reason != (categorize.Reason{Why: categorize.OffTrip}) {
+		t.Errorf("revert source = %q, reason %+v", c.Source, c.Reason)
 	}
 }
 
@@ -264,8 +264,9 @@ func TestARefundFollowsItsTripChargeAfterTheTripEnds(t *testing.T) {
 		txn(3, "2026-11-20", -100, "HOTEL", "7011", ledger.State{Category: 7}), // dated after the refund
 	})
 	wantState(t, p, 2, ledger.State{Category: 102, Labels: []string{Label, "trip-abroad"}})
-	if c, _ := placed(p, 2); c.Source != "trips: trip-abroad refund of 1" || !slices.Equal(p.Reasons[2], []string{Placed}) {
-		t.Errorf("refund source %q, reasons %v", c.Source, p.Reasons[2])
+	if c, _ := placed(p, 2); c.Source != "trips: trip-abroad refund of 1" || !slices.Equal(p.Reasons[2], []string{Placed}) ||
+		c.Reason != (categorize.Reason{Why: categorize.Refund, Trip: "trip-abroad"}) {
+		t.Errorf("refund source %q, reason %+v, reasons %v", c.Source, c.Reason, p.Reasons[2])
 	}
 	if p.Keys[2] != "placed 2 refund 1" {
 		t.Errorf("refund key = %q, want placed 2 refund 1", p.Keys[2])
@@ -373,8 +374,9 @@ func TestATravelCodeOutsideEveryTripIsABooking(t *testing.T) {
 		txn(4, "2026-11-01", -90, "RESORT HOME TOWN", "7011", ledger.State{Category: 5}),
 	})
 	wantState(t, p, 1, ledger.State{Category: 101, Labels: []string{Label, Booking}})
-	if c, _ := placed(p, 1); c.Source != "trips: trip-booking" || !slices.Equal(p.Reasons[1], []string{Placed}) {
-		t.Errorf("booking source %q, reasons %v", c.Source, p.Reasons[1])
+	if c, _ := placed(p, 1); c.Source != "trips: trip-booking" || !slices.Equal(p.Reasons[1], []string{Placed}) ||
+		c.Reason != (categorize.Reason{Why: categorize.OnTrip, Trip: Booking}) {
+		t.Errorf("booking source %q, reason %+v, reasons %v", c.Source, c.Reason, p.Reasons[1])
 	}
 	for _, id := range []int64{2, 3, 4} {
 		unchanged(t, p, id)

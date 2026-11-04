@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 // Run is what a categorize run did and found.
 type Run struct {
 	RunID          string
+	At             time.Time           // when the run started, in the ledger's time zone
 	Changes        []categorize.Change // planned decisions, applied in order
 	Applied        int
 	Flags          []categorize.Change // transactions put in review without a decision, applied after Changes
@@ -31,7 +33,7 @@ type Run struct {
 	Income         []attention.Cycle   // income cycles checked
 	Tolerance      float64             // income mismatch tolerance
 	Corrections    []categorize.Change // categorizer labels removed after the user recategorized
-	Amendments     []categorize.Change // corrections of a rule's decision: Source is the rule, After the user's category
+	Amendments     []categorize.Change // corrections of a layer's decision: Source is what decided, Before its category, After the user's
 	Undecided      []ledger.Transaction
 	Suggestions    []decide.Suggestion
 	Proposals      []learn.Proposal
@@ -78,70 +80,65 @@ func describe(t ledger.Transaction) string {
 	return fmt.Sprintf("%s %s %.2f %s", day.Format(t.Date), t.Account.Name, t.Amount, t.Payee)
 }
 
-// WriteRun prints a run's report.
-func WriteRun(w io.Writer, r Run) error {
-	p := &printer{w: w}
-	p.f("run %s: applied %d of %d changes\n", r.RunID, r.Applied+r.FlagsApplied, len(r.Changes)+len(r.Flags))
-	p.f("changed (%d):\n", r.Applied)
-	for _, c := range r.Changes[:r.Applied] {
-		p.f("  %s: %s -> %s (%s)\n", describe(r.Transactions[c.Charge]), title(r.Titles, c.Before.Category), title(r.Titles, c.After.Category), c.Source)
-	}
+// WriteRun prints a run's report: what needs the user, then what the run applied, then
+// what is there for reference, each section left out when empty.
+func WriteRun(w io.Writer, r Run) error { return r.layout().writeText(w) }
+
+// layout is r's report laid out for the user.
+func (r Run) layout() doc {
+	d := doc{header: fmt.Sprintf("Run %s · %d of %d changes applied", r.At.Format("2006-01-02 15:04"), r.Applied+r.FlagsApplied, len(r.Changes)+len(r.Flags))}
 	if r.Receipts.StaleRates != nil {
-		p.f("grab receipts matched on stale rates: %v\n", r.Receipts.StaleRates)
+		d.notes = append(d.notes, fmt.Sprintf("Grab receipts matched on stale rates: %v", r.Receipts.StaleRates))
 	}
-	p.f("grab receipts not read (%d):\n", len(r.Receipts.Unreadable))
-	for _, u := range r.Receipts.Unreadable {
-		p.f("  %s %s\n", day.Format(u.Received), u.Why)
-	}
-	p.f("grab receipts matching no charge (%d):\n", len(r.Receipts.Unmatched))
-	for _, pay := range r.Receipts.Unmatched {
-		p.payment("  ", pay)
-	}
-	p.f("trips added (%d):\n", len(r.TripsAdded))
-	for _, t := range r.TripsAdded {
-		p.inferred("  "+describeTrip(t.Trip), t.Evidence)
-	}
-	p.f("trips you edited that inference reaches beyond, left as they are (%d):\n", len(r.Hints))
-	for _, h := range r.Hints {
-		p.inferred(fmt.Sprintf("  %s: inferred %s..%s", describeTrip(h.Edited), day.Format(h.Inferred.From), day.Format(h.Inferred.To)), h.Inferred.Evidence)
-	}
-	p.f("trips with new names or dates (%d):\n", len(r.TripVersions))
-	for _, t := range r.TripVersions {
-		p.f("  %s\n", describeTrip(t))
-	}
-	perTrip := placedPerTrip(r.Changes[:r.Applied])
-	p.f("placed on trips (%d):\n", len(perTrip))
-	for _, name := range slices.Sorted(maps.Keys(perTrip)) {
-		p.f("  %s: %d\n", name, perTrip[name])
-	}
-	p.f("needing your attention (%d):\n", len(r.Reasons))
-	for _, id := range byDate(r.Reasons, r.Transactions) {
-		p.f("  %s: %s\n", describe(r.Transactions[id]), strings.Join(r.Reasons[id], ", "))
-	}
-	p.f("monthly income (%d cycles):\n", len(r.Income))
-	for _, c := range r.Income {
-		p.f("  %s\n", cycle(c, r.Tolerance))
-	}
-	p.f("your corrections (%d):\n", len(r.Corrections))
-	for _, c := range r.Corrections {
-		p.f("  %s: you set %s; categorizer label removed\n", describe(r.Transactions[c.Charge]), title(r.Titles, c.After.Category))
-	}
-	p.f("rule amendments to consider (%d):\n", len(r.Amendments))
+	byRule, onTrips := r.amendments()
+	d.add("Needs You", r.proposals(), r.ruleAmendments(byRule), r.suggestions(),
+		r.tripsAdded(), r.tripHints(), r.tripVersions(), r.unreadable(), r.notApplied(), r.undecided(), r.reviewReasons())
+	d.add("Applied", r.applied()...)
+	d.add("Reference", r.tripCorrections(onTrips), r.corrections(), r.income(), r.unmatched())
+	return d
+}
+
+// amendments are r's amendments split by what decided: the trips layer, or a rule or any
+// other layer.
+func (r Run) amendments() (byRule, onTrips []categorize.Change) {
 	for _, a := range r.Amendments {
-		t := r.Transactions[a.Charge]
-		p.f("  %s decided %s; you chose %s for %s\n", a.Source, title(r.Titles, ruleCategory(a)), title(r.Titles, a.After.Category), describe(t))
+		if trips.IsSource(a.Source) {
+			onTrips = append(onTrips, a)
+		} else {
+			byRule = append(byRule, a)
+		}
 	}
-	p.f("still needing review, undecided (%d):\n", len(r.Undecided))
-	for _, t := range r.Undecided {
-		p.f("  %s (%s)\n", describe(t), title(r.Titles, t.State.Category))
+	return byRule, onTrips
+}
+
+// date is d as r's report shows it.
+func (r Run) date(d time.Time) string { return date(d, r.At.Year()) }
+
+// title is a category's title.
+func (r Run) title(id ledger.CategoryID) string { return title(r.Titles, id) }
+
+// move is a change of category, or the category alone when it stays.
+func (r Run) move(before, after ledger.CategoryID) string {
+	if before == after {
+		return r.title(after)
 	}
-	p.f("suggestions (%d):\n", len(r.Suggestions))
-	for _, s := range r.Suggestions {
-		p.f("  %s: %s -> %s (%s)\n", describe(s.Transaction), title(r.Titles, s.Transaction.State.Category), title(r.Titles, s.Decision.Category), s.Decision.Source)
-	}
+	return r.title(before) + " → " + r.title(after)
+}
+
+// charge is the date, payee and amount of transaction id.
+func (r Run) charge(id int64) []string {
+	t := r.Transactions[id]
+	return []string{r.date(t.Date), t.Payee, amount(t.Amount)}
+}
+
+// span is a trip's dates.
+func (r Run) span(from, to time.Time) string { return r.date(from) + " – " + r.date(to) }
+
+// proposals are the rules the backtest proposes, each with the TOML to paste.
+func (r Run) proposals() section {
+	s := section{title: "Proposed Rules"}
 	if !r.ThresholdFound {
-		p.f("no proposals: the backtest found no evidence count reaching 95%% precision\n")
-		return p.err
+		return s
 	}
 	var tr learn.Trial
 	for _, t := range r.Trials {
@@ -149,15 +146,233 @@ func WriteRun(w io.Writer, r Run) error {
 			tr = t
 		}
 	}
-	p.f("proposed rules (%d), from %d or more matching categorizations (%d of %d right in backtest):\n", len(r.Proposals), r.Threshold, tr.Correct, tr.Evaluated)
-	for _, pr := range r.Proposals {
-		p.f("  [[rule]]\n  payee = %q\n  category = %q # %d categorizations of %s\n", pr.Pattern, title(r.Titles, pr.Category), pr.Count, pr.Key)
+	for _, p := range r.Proposals {
+		category := r.title(p.Category)
+		s.parts = append(s.parts,
+			part{line: fmt.Sprintf("%s → %s · %s · backtest %d/%d", p.Key, category, plural(p.Count, "categorization", "categorizations"), tr.Correct, tr.Evaluated)},
+			part{code: []string{"[[rule]]", "payee = " + literal(p.Pattern), "category = " + strconv.Quote(category)}})
 	}
-	return p.err
+	return s
 }
 
-// ruleCategory is the category the categorizer had set before the user's correction.
-func ruleCategory(a categorize.Change) ledger.CategoryID { return a.Before.Category }
+// ruleAmendments are the user's corrections of a rule's decision, or another home layer's.
+func (r Run) ruleAmendments(amendments []categorize.Change) section {
+	t := table{cols: cols([]string{"Date", "Payee", "Amount", "By", "Decided", "You chose"}, "Amount")}
+	for _, a := range amendments {
+		rule, ok := rules.KeyName(a.Source)
+		if !ok {
+			rule = a.Source
+		}
+		t.rows = append(t.rows, append(r.charge(a.Charge), rule, r.title(a.Before.Category), r.title(a.After.Category)))
+	}
+	return tabled("Rule Amendments", t)
+}
+
+// suggestions are the user's transactions a layer would categorize differently.
+func (r Run) suggestions() section {
+	t := table{cols: cols([]string{"Date", "Payee", "Amount", "Category", "By"}, "Amount")}
+	for _, s := range r.Suggestions {
+		tx := s.Transaction
+		t.rows = append(t.rows, []string{r.date(tx.Date), tx.Payee, amount(tx.Amount), r.move(tx.State.Category, s.Decision.Category), decider(s.Decision.Reason, s.Decision.Source)})
+	}
+	return tabled("Suggestions", t)
+}
+
+// decider names what made a decision for reason, or its source when it gives none.
+func decider(reason categorize.Reason, source string) string {
+	switch reason.Why {
+	case categorize.ByReceipt:
+		return "receipt " + reason.Booking
+	case categorize.ByRule:
+		return "rule " + reason.Rule
+	case categorize.OnTrip:
+		return tripName(reason.Trip)
+	case categorize.Refund:
+		return "refund, " + tripName(reason.Trip)
+	case categorize.OffTrip:
+		return "removed from trips"
+	}
+	return source
+}
+
+// tripsAdded are the trips the run listed, with their evidence.
+func (r Run) tripsAdded() section {
+	s := section{title: "Trips Added"}
+	for _, t := range r.TripsAdded {
+		s.parts = append(s.parts, part{line: r.trip(t.Trip)}, r.evidence(t.Evidence))
+	}
+	return s
+}
+
+// tripHints are the trips the user edited that inference reaches beyond.
+func (r Run) tripHints() section {
+	s := section{title: "Trip Hints"}
+	for _, h := range r.Hints {
+		s.parts = append(s.parts, part{line: fmt.Sprintf("%s · inferred %s", r.trip(h.Edited), r.span(h.Inferred.From, h.Inferred.To))}, r.evidence(h.Inferred.Evidence))
+	}
+	return s
+}
+
+// tripVersions are listed trips placed under a new name or new dates.
+func (r Run) tripVersions() section {
+	s := section{title: "Trips Renamed or Redated"}
+	for _, t := range r.TripVersions {
+		s.parts = append(s.parts, part{line: r.trip(t)})
+	}
+	return s
+}
+
+// trip is a trip's name and dates, and whether it is a visa run.
+func (r Run) trip(t trips.Trip) string {
+	s := tripName(t.Name) + " · " + r.span(t.From, t.To)
+	if t.VisaRun {
+		s += " · visa run"
+	}
+	return s
+}
+
+// evidence is a table of a trip's evidence: each sign, what showed it and its days.
+func (r Run) evidence(evidence []trips.Evidence) part {
+	t := table{cols: make([]column, 4)}
+	for _, e := range spans(evidence) {
+		when := r.date(e.first)
+		if !e.last.Equal(e.first) {
+			when = r.span(e.first, e.last)
+		}
+		t.rows = append(t.rows, []string{e.source.String(), e.sign.String(), e.what, when})
+	}
+	return part{table: &t}
+}
+
+// unreadable are the Grab receipts the run couldn't read.
+func (r Run) unreadable() section {
+	t := table{cols: cols([]string{"Received", "Why"})}
+	for _, u := range r.Receipts.Unreadable {
+		t.rows = append(t.rows, []string{r.date(u.Received) + u.Received.Format(" 15:04"), u.Why})
+	}
+	return tabled("Unreadable Grab Receipts", t)
+}
+
+// notApplied are the changes the run planned and failed to apply.
+func (r Run) notApplied() section {
+	t := table{cols: cols([]string{"Date", "Payee", "Amount", "Category", "Why"}, "Amount")}
+	for _, c := range r.Changes[r.Applied:] {
+		t.rows = append(t.rows, append(r.charge(c.Charge), r.move(c.Before.Category, c.After.Category), decider(c.Reason, c.Source)))
+	}
+	return tabled("Not Applied", t)
+}
+
+// undecided are the transactions needing review that no layer decided.
+func (r Run) undecided() section {
+	t := table{cols: cols([]string{"Date", "Payee", "Account", "Amount", "Category now"}, "Amount")}
+	for _, tx := range r.Undecided {
+		t.rows = append(t.rows, []string{r.date(tx.Date), tx.Payee, tx.Account.Name, amount(tx.Amount), r.title(tx.State.Category)})
+	}
+	return tabled("Undecided", t)
+}
+
+// reviewReasons are why each transaction put in review needs the user.
+func (r Run) reviewReasons() section {
+	t := table{cols: []column{{}, {}, {right: true}, {}}}
+	for _, id := range byDate(r.Reasons, r.Transactions) {
+		phrases := make([]string, len(r.Reasons[id]))
+		for i, l := range r.Reasons[id] {
+			phrases[i] = phrase(l)
+		}
+		t.rows = append(t.rows, append(r.charge(id), strings.Join(phrases, ", ")))
+	}
+	return tabled("Review Reasons", t)
+}
+
+// applied groups the changes r applied by why they were made.
+func (r Run) applied() []section {
+	moved := []string{"Date", "Payee", "Amount", "Category"}
+	grabbed := table{cols: cols([]string{"Date", "Amount", "Category", "Receipt"}, "Amount")}
+	confirmed := table{cols: cols(append(moved, "Rule"), "Amount")}
+	ruled := table{cols: cols(append(moved, "Rule"), "Amount")}
+	placed := table{cols: cols(append(moved, "Trip"), "Amount")}
+	removed := table{cols: cols(moved, "Amount")}
+	refunds := table{cols: cols(append(moved, "Of"), "Amount")}
+	other := table{cols: cols(append(moved, "Source"), "Amount")}
+	for _, c := range r.Changes[:r.Applied] {
+		row := append(r.charge(c.Charge), r.move(c.Before.Category, c.After.Category))
+		switch c.Reason.Why {
+		case categorize.ByReceipt:
+			t := r.Transactions[c.Charge]
+			grabbed.rows = append(grabbed.rows, []string{r.date(t.Date), amount(t.Amount), r.move(c.Before.Category, c.After.Category), c.Reason.Booking})
+		case categorize.ByRule:
+			if c.Before.Category == c.After.Category {
+				confirmed.rows = append(confirmed.rows, append(row, c.Reason.Rule))
+			} else {
+				ruled.rows = append(ruled.rows, append(row, c.Reason.Rule))
+			}
+		case categorize.OnTrip:
+			placed.rows = append(placed.rows, append(row, tripName(c.Reason.Trip)))
+		case categorize.OffTrip:
+			removed.rows = append(removed.rows, row)
+		case categorize.Refund:
+			refunds.rows = append(refunds.rows, append(row, tripName(c.Reason.Trip)))
+		default:
+			other.rows = append(other.rows, append(row, c.Source))
+		}
+	}
+	return []section{tabled("Grab Receipts", grabbed), tabled("Confirmed by Rule", confirmed), tabled("Rules", ruled),
+		tabled("Trips", placed), tabled("Removed from Trips", removed), tabled("Refunds", refunds), tabled("Other", other)}
+}
+
+// tripCorrections are the user's corrections of the trips layer's categories.
+func (r Run) tripCorrections(amendments []categorize.Change) section {
+	t := table{cols: cols([]string{"Date", "Payee", "Amount", "Categorizer", "You"}, "Amount")}
+	for _, a := range amendments {
+		t.rows = append(t.rows, append(r.charge(a.Charge), r.title(a.Before.Category), r.title(a.After.Category)))
+	}
+	return tabled("Corrected Trip Categories", t)
+}
+
+// corrections are r's corrections not already listed as amendments.
+func (r Run) corrections() section {
+	listed := map[int64]bool{}
+	for _, a := range r.Amendments {
+		listed[a.Charge] = true
+	}
+	t := table{cols: cols([]string{"Date", "Payee", "Amount", "You set"}, "Amount")}
+	for _, c := range r.Corrections {
+		if !listed[c.Charge] {
+			t.rows = append(t.rows, append(r.charge(c.Charge), r.title(c.After.Category)))
+		}
+	}
+	return tabled("Corrections", t)
+}
+
+// income is each income cycle checked: what it received and how that compares.
+func (r Run) income() section {
+	t := table{cols: cols([]string{"Cycle", "Received", "Status"}, "Received")}
+	for _, c := range r.Income {
+		cycle := c.Month.Format("January")
+		if c.Month.Year() != r.At.Year() {
+			cycle = c.Month.Format("January 2006")
+		}
+		status := "awaiting card bill and rent"
+		if c.Ready {
+			status = fmt.Sprintf("expected %s, off by %s", money(c.Expected), amount(c.Actual-c.Expected))
+			if c.Mismatch(r.Tolerance) {
+				status += ", mismatch"
+			}
+		}
+		t.rows = append(t.rows, []string{cycle, money(c.Actual), status})
+	}
+	return tabled("Monthly Income", t)
+}
+
+// unmatched are the Grab payments no charge matched.
+func (r Run) unmatched() section {
+	t := table{cols: cols([]string{"Paid", "Account", "Service", "THB", "Booking"}, "THB")}
+	for _, p := range r.Receipts.Unmatched {
+		account, _, _ := strings.Cut(p.Account, "@")
+		t.rows = append(t.rows, []string{r.date(p.At) + p.At.Format(" 15:04"), account, string(p.Service), money(p.THB), p.Booking})
+	}
+	return tabled("Unmatched Grab Receipts", t)
+}
 
 // Replay is a replay of the rules against the user's categorizations.
 type Replay struct {
@@ -260,38 +475,38 @@ func describeTrip(t trips.Trip) string {
 // each sign and what showed it, with its first and last days.
 func (p *printer) inferred(line string, evidence []trips.Evidence) {
 	p.f("%s\n", line)
-	type key struct {
-		source trips.Source
-		sign   trips.Sign
-		what   string
-	}
-	days := map[key][]time.Time{}
-	var keys []key
-	for _, e := range evidence {
-		k := key{e.Source, e.Sign, e.What}
-		if days[k] == nil {
-			keys = append(keys, k)
+	for _, e := range spans(evidence) {
+		when := day.Format(e.first)
+		if !e.last.Equal(e.first) {
+			when += ".." + day.Format(e.last)
 		}
-		days[k] = append(days[k], e.Day)
-	}
-	slices.SortStableFunc(keys, func(a, b key) int { return cmp.Compare(a.source, b.source) })
-	for _, k := range keys {
-		ds := days[k]
-		when := day.Format(ds[0])
-		if last := ds[len(ds)-1]; !last.Equal(ds[0]) {
-			when += ".." + day.Format(last)
-		}
-		p.f("    %s: %s %s %s\n", k.source, k.sign, k.what, when)
+		p.f("    %s: %s %s %s\n", e.source, e.sign, e.what, when)
 	}
 }
 
-// placedPerTrip counts the trips layer's changes by the trip they name.
-func placedPerTrip(changes []categorize.Change) map[string]int {
-	out := map[string]int{}
-	for _, c := range changes {
-		if name, ok := trips.SourceTrip(c.Source); ok {
-			out[name]++
+// spanned is a sign of a trip, what showed it, and its first and last days.
+type spanned struct {
+	source      trips.Source
+	sign        trips.Sign
+	what        string
+	first, last time.Time
+}
+
+// spans gathers evidence by source, sign and what showed it, in date order, by source,
+// calendar first.
+func spans(evidence []trips.Evidence) []spanned {
+	var out []spanned
+	at := map[spanned]int{}
+	for _, e := range evidence {
+		k := spanned{source: e.Source, sign: e.Sign, what: e.What}
+		i, ok := at[k]
+		if !ok {
+			i = len(out)
+			at[k] = i
+			out = append(out, spanned{source: e.Source, sign: e.Sign, what: e.What, first: e.Day})
 		}
+		out[i].last = e.Day
 	}
+	slices.SortStableFunc(out, func(a, b spanned) int { return cmp.Compare(a.source, b.source) })
 	return out
 }

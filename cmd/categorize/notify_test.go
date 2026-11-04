@@ -42,7 +42,7 @@ func TestAScheduledRunSavesItsReportUnderItsRunID(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(n.dir, "20261105T210000.000000000Z.txt"))
-	if err != nil || string(b) != out.String() || !strings.HasPrefix(string(b), "run 20261105T210000.000000000Z:") {
+	if err != nil || string(b) != out.String() || !strings.HasPrefix(string(b), "Run ") {
 		t.Errorf("saved %q, %v; want the report the log got, %q", b, err, out.String())
 	}
 	if info, err := os.Stat(filepath.Join(n.dir, "20261105T210000.000000000Z.txt")); err != nil {
@@ -70,8 +70,8 @@ func TestAReportWithSomethingNewInsertsOneNoticeCarryingIt(t *testing.T) {
 	if err := n.report(context.Background(), &out, r); err != nil {
 		t.Fatal(err)
 	}
-	if len(b.notices) != 1 || b.notices[0].Subject != "categorize: 1 to review" || b.notices[0].Body != out.String() {
-		t.Errorf("notices %+v; want one, subject categorize: 1 to review, body the report", b.notices)
+	if len(b.notices) != 1 || b.notices[0].Subject != "Categorizer: 1 transaction to review" || b.notices[0].Body != out.String() {
+		t.Errorf("notices %+v; want one, subject Categorizer: 1 transaction to review, body the report", b.notices)
 	}
 }
 

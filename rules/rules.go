@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
@@ -122,6 +124,45 @@ func (r Rule) Key() string {
 	return fmt.Sprintf("payee=%q account=%q type=%q min=%v max=%v%s category=%q", r.Payee, r.Account, r.Type, r.Min, r.Max, days, r.Category)
 }
 
+// Name is how the report shows the rule: its payee pattern without a leading (?i), or its
+// account when it has no payee.
+func (r Rule) Name() string { return ruleName(r.Payee, r.Account) }
+
+// KeyName is the name of the rule a Key identifies; ok is false when key isn't a rule's.
+func KeyName(key string) (string, bool) {
+	payee, rest, ok := quoted(key, "payee=")
+	if !ok {
+		return "", false
+	}
+	account, _, ok := quoted(rest, " account=")
+	if !ok {
+		return "", false
+	}
+	return ruleName(payee, account), true
+}
+
+// ruleName names a rule by its payee pattern and account.
+func ruleName(payee, account string) string {
+	if payee == "" {
+		return "account " + account
+	}
+	return strings.TrimPrefix(payee, "(?i)")
+}
+
+// quoted is the Go-quoted string after prefix at the start of s, and what follows it.
+func quoted(s, prefix string) (value, rest string, ok bool) {
+	s, ok = strings.CutPrefix(s, prefix)
+	if !ok {
+		return "", "", false
+	}
+	q, err := strconv.QuotedPrefix(s)
+	if err != nil {
+		return "", "", false
+	}
+	value, err = strconv.Unquote(q)
+	return value, s[len(q):], err == nil
+}
+
 // CategoryID is the PocketSmith category the rule gives.
 func (r Rule) CategoryID() ledger.CategoryID { return r.id }
 
@@ -141,7 +182,7 @@ func (rs Rules) Decide(t ledger.Transaction) (decide.Decision, bool) {
 	if !ok {
 		return decide.Decision{}, false
 	}
-	return decide.Decision{Category: r.id, Label: Label, Source: r.Key()}, true
+	return decide.Decision{Category: r.id, Label: Label, Source: r.Key(), Reason: categorize.Reason{Why: categorize.ByRule, Rule: r.Name()}}, true
 }
 
 // Stats is how a rule's decisions compare with the user's categorizations.

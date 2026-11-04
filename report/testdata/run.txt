@@ -1,0 +1,102 @@
+Run 2026-11-04 09:30 · 10 of 11 changes applied
+Grab receipts matched on stale rates: rates kept through 2026-11-03: fx: 503
+
+NEEDS YOU
+
+Proposed Rules
+  TEA HOUSE → Eating Out · 3 categorizations · backtest 48/50
+    [[rule]]
+    payee = '(?i)\bTEA[^A-Za-z]*HOUSE\b'
+    category = "Eating Out"
+
+Rule Amendments
+  Date    Payee      Amount  By         Decided        You chose
+  Sep 14  BOOK NOOK  −18.00  BOOK NOOK  Discretionary  Groceries
+
+Suggestions
+  Date   Payee         Amount  Category                   By
+  Aug 8  CORNER BOOKS  −19.50  Groceries → Discretionary  rule CORNER BOOKS
+
+Trips Added
+  trip-2026-03-10 · Mar 10 – Mar 14 · visa run
+    calendar  flight out   HMT-FAR ZZ101        Mar 10
+    calendar  stay         Stay at Inn Farcity  Mar 10 – Mar 11
+    calendar  flight back  FAR-HMT ZZ102        Mar 14
+    card      new place    NOODLES FARCITY      Mar 11 – Mar 13
+
+Trip Hints
+  Farcity trip · Mar 10 – Mar 14 · inferred Mar 10 – Mar 14
+    calendar  flight out   HMT-FAR ZZ101        Mar 10
+    calendar  stay         Stay at Inn Farcity  Mar 10 – Mar 11
+    calendar  flight back  FAR-HMT ZZ102        Mar 14
+    card      new place    NOODLES FARCITY      Mar 11 – Mar 13
+
+Trips Renamed or Redated
+  Farcity trip · Mar 10 – Mar 14
+
+Unreadable Grab Receipts
+  Received     Why
+  Nov 2 06:19  no total
+
+Not Applied
+  Date   Payee       Amount  Category                       Why
+  Nov 1  PET CLINIC  −64.80  uncategorized → Discretionary  rule PET CLINIC
+
+Undecided
+  Date   Payee       Account   Amount  Category now
+  Oct 5  QUIET SHOP  Checking  −42.00  Discretionary
+
+Review Reasons
+  Oct 12  HARBOUR HOTEL  −88.40  placed on a trip
+  Nov 4   NEW DINER      −35.50  new payee, larger than usual
+
+APPLIED
+
+Grab Receipts
+  Date   Amount  Category            Receipt
+  Nov 3   −4.20  Eating Out → Rides  A-FAKE0001
+  Nov 2  −15.75  Eating Out          A-FAKE0002
+
+Confirmed by Rule
+  Date    Payee         Amount  Category       Rule
+  Oct 30  CORNER BOOKS  −23.00  Discretionary  CORNER BOOKS
+
+Rules
+  Date          Payee              Amount  Category                   Rule
+  Jan 15, 2025  SPARKLE MARKET  +1,250.00  Groceries → Discretionary  SPARKLE
+
+Trips
+  Date    Payee          Amount  Category                      Trip
+  Oct 12  HARBOUR HOTEL  −88.40  Discretionary → Trip Lodging  Seaside trip
+
+Removed from Trips
+  Date    Payee         Amount  Category
+  Sep 20  LANTERN CAFE  +12.00  Trip Food → Eating Out
+
+Refunds
+  Date    Payee           Amount  Category                      Of
+  Oct 20  HARBOUR HOTEL   +88.40  Discretionary → Trip Lodging  Seaside trip
+  Oct 25  FERRY LINE     +300.00  Trip Transport                trip booking
+
+Other
+  Date   Payee         Amount  Category       Source
+  Oct 1  MYSTERY SHOP   −8.65  Discretionary  source
+
+REFERENCE
+
+Corrected Trip Categories
+  Date    Payee         Amount  Categorizer   You
+  Oct 14  SEASIDE TAXI  −11.30  Trip Lodging  Trip Transport
+
+Corrections
+  Date   Payee       Amount  You set
+  Sep 2  OLD MARKET   −7.25  Groceries
+
+Monthly Income
+  Cycle     Received  Status
+  October   5,400.00  expected 5,000.00, off by +400.00, mismatch
+  November  5,100.00  awaiting card bill and rent
+
+Unmatched Grab Receipts
+  Paid         Account  Service     THB  Booking
+  Nov 1 13:05  rider    Standard  83.00  A-FAKE0003

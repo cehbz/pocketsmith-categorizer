@@ -1,37 +1,32 @@
 package report
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 // Notice is the subject of an email about r, and whether r is due one: whether a section new
 // this run isn't empty. Trip hints and unreadable receipts recur every run, so only those no
 // earlier run counted (NewHints, NewUnreadable) make one. Standing lists (the undecided,
-// receipts matching no charge, income) and what the run did for the user (changes,
-// corrections) make no notice.
+// receipts matching no charge, income), what the run did for the user (changes,
+// corrections) and corrections of the trips layer's categories make no notice.
 func Notice(r Run) (subject string, due bool) {
 	var parts []string
 	count := func(n int, one, many string) {
-		switch {
-		case n == 1:
-			parts = append(parts, "1 "+one)
-		case n > 1:
-			parts = append(parts, fmt.Sprintf("%d %s", n, many))
+		if n > 0 {
+			parts = append(parts, plural(n, one, many))
 		}
 	}
-	count(r.FlagsApplied, "to review", "to review")
+	byRule, _ := r.amendments()
+	count(len(r.Proposals), "rule to approve", "rules to approve")
+	count(len(byRule), "rule amendment", "rule amendments")
 	count(len(r.Suggestions), "suggestion", "suggestions")
-	count(len(r.Proposals), "proposed rule", "proposed rules")
-	count(len(r.Amendments), "rule amendment", "rule amendments")
 	count(len(r.TripsAdded), "trip added", "trips added")
-	count(len(r.TripVersions), "trip renamed or redated", "trips renamed or redated")
 	count(r.NewHints, "trip hint", "trip hints")
-	count(r.NewUnreadable, "receipt not read", "receipts not read")
+	count(len(r.TripVersions), "trip renamed or redated", "trips renamed or redated")
+	count(r.NewUnreadable, "unreadable receipt", "unreadable receipts")
+	count(r.FlagsApplied, "transaction to review", "transactions to review")
 	if len(parts) == 0 {
 		return "", false
 	}
-	return "categorize: " + strings.Join(parts, ", "), true
+	return "Categorizer: " + strings.Join(parts, " · "), true
 }
 
 // Failure is the subject of an email about a run that failed with err: its first line.

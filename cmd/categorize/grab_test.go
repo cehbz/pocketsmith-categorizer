@@ -94,8 +94,8 @@ func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) 
 		tx   ledger.Transaction
 		want decide.Decision
 	}{
-		{ride, decide.Decision{Category: 21, Label: "grab-auto", Source: "grab A-TESTRIDE0001"}},
-		{food, decide.Decision{Category: 22, Label: "grab-auto", Source: "grab A-TESTFOOD0002"}},
+		{ride, decide.Decision{Category: 21, Label: "grab-auto", Source: "grab A-TESTRIDE0001", Reason: categorize.Reason{Why: categorize.ByReceipt, Booking: "A-TESTRIDE0001"}}},
+		{food, decide.Decision{Category: 22, Label: "grab-auto", Source: "grab A-TESTFOOD0002", Reason: categorize.Reason{Why: categorize.ByReceipt, Booking: "A-TESTFOOD0002"}}},
 	} {
 		if got, ok := layer.Decide(c.tx); !ok || got != c.want {
 			t.Errorf("Decide(%d) = %+v, %t; want %+v", c.tx.ID, got, ok, c.want)

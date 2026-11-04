@@ -77,7 +77,8 @@ func readGrab(ctx context.Context, s *session, txs []ledger.Transaction, from ti
 	}
 	layer := grabLayer{decided: make(map[int64]decide.Decision, len(m.Pairs))}
 	for _, pr := range m.Pairs {
-		layer.decided[pr.Charge.ID] = decide.Decision{Category: s.grabPolicy.CategoryFor(pr.Payment), Label: s.grabPolicy.Label, Source: "grab " + pr.Payment.Booking}
+		layer.decided[pr.Charge.ID] = decide.Decision{Category: s.grabPolicy.CategoryFor(pr.Payment), Label: s.grabPolicy.Label, Source: "grab " + pr.Payment.Booking,
+			Reason: categorize.Reason{Why: categorize.ByReceipt, Booking: pr.Payment.Booking}}
 	}
 	receipts.Unmatched = m.Unmatched
 	return layer, receipts, nil

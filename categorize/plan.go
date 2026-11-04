@@ -35,12 +35,34 @@ func (p Policy) Settle(cat ledger.CategoryID, current ledger.State) ledger.State
 	return ledger.State{Category: cat, NeedsReview: false, Labels: labels}
 }
 
-// Change moves one charge from one state to another; Source names what decided it.
+// Change moves one charge from one state to another; Source names what decided it. Reason
+// says why for the run's report; the journal keeps Source alone.
 type Change struct {
 	Charge int64        `json:"charge"`
 	Before ledger.State `json:"before"`
 	After  ledger.State `json:"after"`
 	Source string       `json:"source,omitempty"`
+	Reason Reason       `json:"-"`
+}
+
+// Why is the kind of decision behind a change.
+type Why int
+
+const (
+	Unexplained Why = iota // no layer said why: a flag, a correction, an undo
+	ByReceipt              // a Grab receipt's service
+	ByRule                 // a rule
+	OnTrip                 // placed on a trip, or as a booking no trip claimed
+	Refund                 // a credit placed with its charge
+	OffTrip                // a trip placement reverted
+)
+
+// Reason is why a change was made: the kind of decision and what made it.
+type Reason struct {
+	Why     Why
+	Booking string // a receipt's Grab booking
+	Rule    string // a rule's name
+	Trip    string // the trip's name, or the booking label, for OnTrip and Refund
 }
 
 // Changes returns a change for each pair whose charge isn't in its target state, and how many already are.

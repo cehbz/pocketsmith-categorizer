@@ -152,7 +152,7 @@ func TestASecondRunOverTheFirstRunsOutputAppliesNothing(t *testing.T) {
 		l.txs[7].State.Category != 102 || l.txs[8].State.Category != 101 || l.txs[2].State.Category != 5 {
 		t.Fatalf("first run: list %v, hotel %+v, refund %+v, booking %+v, grocer %+v\n%s", store.list, l.txs[4].State, l.txs[7].State, l.txs[8].State, l.txs[2].State, out.String())
 	}
-	if got := out.String(); !strings.Contains(got, "trips added (1):") || !strings.Contains(got, "trips with new names or dates (0):") ||
+	if got := out.String(); !strings.Contains(got, "\nTrips Added\n  trip-2026-10-05 ·") || strings.Contains(got, "Trips Renamed or Redated") ||
 		!l.txs[4].State.NeedsReview || !l.txs[4].State.HasLabel(trips.Placed) {
 		t.Errorf("first run: hotel %+v; want it flagged placed, one trip added and none with a new version\n%s", l.txs[4].State, got)
 	}
@@ -190,7 +190,7 @@ func TestARunExtendsATripInProgressAndTheNextAppliesNothing(t *testing.T) {
 		l.txs[6].State.Category != 102 || !l.txs[6].State.HasLabel(longer.Name) {
 		t.Fatalf("later run: list %v, written %v, last night %+v; want the trip extended and its last night placed\n%s", store.list, store.written, l.txs[6].State, out.String())
 	}
-	if want := "trips with new names or dates (1):"; !strings.Contains(out.String(), want) {
+	if want := "\nTrips Renamed or Redated\n  trip-2026-10-05 · Oct 5 – Oct 7\n"; !strings.Contains(out.String(), want) {
 		t.Errorf("report lacks %q:\n%s", want, out.String())
 	}
 	l.updates, store.saves = 0, 0
@@ -243,7 +243,7 @@ func TestAChargeTheUserRecategorizedIsntPlacedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := l.txs[4].State; got.Category != 9 || got.HasLabel(trips.Label) ||
-		!strings.Contains(out.String(), "applied 0 of 0 changes") || !strings.Contains(out.String(), "your corrections (1):") {
+		!strings.Contains(out.String(), "0 of 0 changes applied") || !strings.Contains(out.String(), "\nCorrected Trip Categories\n") {
 		t.Errorf("hotel after the correction: %+v; want the user's category, no longer the categorizer's, and no placement\n%s", got, out.String())
 	}
 }
@@ -277,11 +277,16 @@ func TestAListedTripChangesNothingInTheLedgerAndIsStillRecordedUnderARun(t *test
 	trip := first(t, newRunner, s)
 	store.list, store.written = nil, nil // the user wiped both files
 	l.updates = 0
-	var out strings.Builder
-	if err := newRunner().run(context.Background(), s, &out); err != nil {
+	r := newRunner()
+	before, err := r.journal.Latest()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(store.list, trips.List{trip}) || l.updates != 0 || strings.Contains(out.String(), "run (none)") {
+	var out strings.Builder
+	if err := r.run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if latest, err := r.journal.Latest(); !reflect.DeepEqual(store.list, trips.List{trip}) || l.updates != 0 || err != nil || latest == before {
 		t.Errorf("list %v, %d updates; want %v listed under a run of its own\n%s", store.list, l.updates, trip, out.String())
 	}
 }
@@ -295,7 +300,7 @@ func TestATripTheUserRenamedIsReportedAndItsChargesPlacedUnderTheNewName(t *test
 	if err := newRunner().run(context.Background(), s, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "trips with new names or dates (1):\n  trip-farcity") || !l.txs[4].State.HasLabel("trip-farcity") {
+	if !strings.Contains(out.String(), "\nTrips Renamed or Redated\n  Farcity trip ·") || !l.txs[4].State.HasLabel("trip-farcity") {
 		t.Errorf("hotel %+v; want it under the new name and the report to list the trip\n%s", l.txs[4].State, out.String())
 	}
 }
@@ -321,10 +326,10 @@ func TestARunReportsTheTripsItAddsWithTheirEvidence(t *testing.T) {
 	if err := newRunner().run(context.Background(), s, &out); err != nil {
 		t.Fatal(err)
 	}
-	want := "trips added (1):\n  trip-2026-10-05 2026-10-05..2026-10-07\n" +
-		"    card: lodging HOTEL FARCITY 2026-10-05..2026-10-07\n" +
-		"    card: new place HOTEL FARCITY 2026-10-05\n" +
-		"    card: new place NOODLES FARCITY 2026-10-06\n"
+	want := "\nTrips Added\n  trip-2026-10-05 · Oct 5 – Oct 7\n" +
+		"    card  lodging    HOTEL FARCITY    Oct 5 – Oct 7\n" +
+		"    card  new place  HOTEL FARCITY    Oct 5\n" +
+		"    card  new place  NOODLES FARCITY  Oct 6\n"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("report lacks %q:\n%s", want, out.String())
 	}
@@ -341,7 +346,7 @@ func TestATripInferredBeyondOneTheUserEditedIsAHintEveryRunAndTheListStays(t *te
 	if err := newRunner().run(context.Background(), s, &out); err != nil {
 		t.Fatal(err)
 	}
-	want := "trips you edited that inference reaches beyond, left as they are (1):\n  trip-farcity 2026-10-06..2026-10-07: inferred 2026-10-05..2026-10-07\n"
+	want := "\nTrip Hints\n  Farcity trip · Oct 6 – Oct 7 · inferred Oct 5 – Oct 7\n"
 	if !strings.Contains(out.String(), want) || !reflect.DeepEqual(store.list, trips.List{edited}) || store.saves != 0 {
 		t.Errorf("list %v after %d saves; want the hint and the list as the user left it\n%s", store.list, store.saves, out.String())
 	}
@@ -411,8 +416,8 @@ func TestAGrabChargeTheUserCategorizedIsOnlySuggestedTheReceiptsCategory(t *test
 	if got := l.txs[11].State; !reflect.DeepEqual(got, charge.State) || slices.Contains(l.updated, 11) {
 		t.Errorf("Grab charge %+v after updates to %v; want it left in Travel and not updated\n%s", got, l.updated, out.String())
 	}
-	_, suggestions, _ := strings.Cut(out.String(), "suggestions (1):\n")
-	if !strings.Contains(suggestions, "Travel -> Rides (grab A-TESTRIDE0001)") {
+	_, suggestions, _ := strings.Cut(out.String(), "\nSuggestions\n")
+	if !strings.Contains(suggestions, "Travel → Rides  receipt A-TESTRIDE0001") {
 		t.Errorf("want the receipt's category suggested for the Grab charge\n%s", out.String())
 	}
 }
@@ -461,14 +466,14 @@ func TestAnUnreadableReceiptMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
 	s.receipts = &fakeMailbox{messages: []gmail.Message{{ID: "m3", Received: at("2026-10-29T08:00:00Z"), To: "a@example.com", Text: noTotal}}}
 	b := &fakeInbox{}
 	out := noticed(t, newRunner, s, b)
-	if len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "1 receipt not read") {
+	if len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "1 unreadable receipt") {
 		t.Fatalf("first run's notices %+v; want one counting the receipt not read\n%s", b.notices, out)
 	}
 	out = noticed(t, newRunner, s, b)
 	if len(b.notices) != 1 {
 		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out)
 	}
-	if !strings.Contains(out, "grab receipts not read (1):\n  2026-10-29 no total\n") {
+	if !strings.Contains(out, "\nUnreadable Grab Receipts\n  Received      Why\n  Oct 29 08:00  no total\n") {
 		t.Errorf("second run's report lacks the receipt not read\n%s", out)
 	}
 }
@@ -487,7 +492,24 @@ func TestATripHintMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
 	if len(b.notices) != 1 {
 		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out)
 	}
-	if !strings.Contains(out, "trips you edited that inference reaches beyond, left as they are (1):\n  trip-farcity 2026-10-06..2026-10-07: inferred 2026-10-05..2026-10-07\n") {
+	if !strings.Contains(out, "\nTrip Hints\n  Farcity trip · Oct 6 – Oct 7 · inferred Oct 5 – Oct 7\n") {
 		t.Errorf("second run's report lacks the trip hint\n%s", out)
+	}
+}
+
+func TestTheReportIsHeadedByTheRunsStartInTheLedgersTimeZone(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, _ := tripRun(t)
+	s.loc = time.FixedZone("ICT", 7*60*60)
+	before := time.Now().In(s.loc).Truncate(time.Minute)
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now().In(s.loc)
+	header, _, _ := strings.Cut(out.String(), " · ")
+	at, err := time.ParseInLocation("Run 2006-01-02 15:04", header, s.loc)
+	if err != nil || at.Before(before) || at.After(after) {
+		t.Errorf("header %q, %v; want the run's start in the ledger's zone, %v..%v", header, err, before, after)
 	}
 }

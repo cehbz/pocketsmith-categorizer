@@ -1,6 +1,7 @@
 package categorize
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 
@@ -74,5 +75,15 @@ func TestChangesSkipsChargesAlreadyAtTarget(t *testing.T) {
 	changes, correct := policy.Changes(pairs)
 	if len(changes) != 0 || correct != 1 {
 		t.Errorf("changes %v, correct %d; want none and 1", changes, correct)
+	}
+}
+
+func TestAChangesReasonIsntStored(t *testing.T) {
+	c := Change{Charge: 1, After: ledger.State{Category: 5}, Source: "trips: trip-abroad"}
+	explained := c
+	explained.Reason = Reason{Why: OnTrip, Trip: "trip-abroad"}
+	want, _ := json.Marshal(c)
+	if got, err := json.Marshal(explained); err != nil || string(got) != string(want) {
+		t.Errorf("stored %s, %v; want %s", got, err, want)
 	}
 }

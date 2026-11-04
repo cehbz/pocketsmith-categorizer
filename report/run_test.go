@@ -2,6 +2,10 @@ package report
 
 import (
 	"errors"
+	"flag"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,97 +28,6 @@ func rtx(id int64, payee string, cat ledger.CategoryID) ledger.Transaction {
 	return ledger.Transaction{ID: id, Date: d, Amount: -12.5, Payee: payee, Account: ledger.Account{Name: "Card"}, State: ledger.State{Category: cat}}
 }
 
-func TestWriteRunListsEverySection(t *testing.T) {
-	r := Run{
-		RunID:       "RUN1",
-		Changes:     []categorize.Change{{Charge: 1, Before: ledger.State{Category: 3, NeedsReview: true}, After: ledger.State{Category: 5, Labels: []string{"auto-rule"}}, Source: "rule-a"}},
-		Applied:     1,
-		Corrections: []categorize.Change{{Charge: 2, Before: ledger.State{Category: 9, Labels: []string{"auto-rule"}}, After: ledger.State{Category: 9}}},
-		Amendments:  []categorize.Change{{Charge: 2, Before: ledger.State{Category: 5}, After: ledger.State{Category: 9}, Source: "rule-b"}},
-		Undecided:   []ledger.Transaction{rtx(3, "NEW PLACE", 0)},
-		Suggestions: []decide.Suggestion{{Transaction: rtx(4, "OLD PLACE", 3), Decision: decide.Decision{Category: 5, Source: "rule-c"}}},
-		Proposals:   []learn.Proposal{{Key: "CAFE ONE", Category: 5, Count: 4, Pattern: learn.Pattern("CAFE ONE")}},
-		Threshold:   3, ThresholdFound: true,
-		Trials:       []learn.Trial{{Min: 3, Evaluated: 40, Correct: 39}},
-		Titles:       titles,
-		Transactions: map[int64]ledger.Transaction{1: rtx(1, "SHOP", 3), 2: rtx(2, "ATM", 9)},
-	}
-	var b strings.Builder
-	if err := WriteRun(&b, r); err != nil {
-		t.Fatal(err)
-	}
-	out := b.String()
-	for _, want := range []string{
-		"run RUN1: applied 1 of 1 changes",
-		"2026-02-01 Card -12.50 SHOP: Phone -> Food (rule-a)",
-		"2026-02-01 Card -12.50 ATM: you set Cash; categorizer label removed",
-		"rule-b decided Food; you chose Cash for 2026-02-01 Card -12.50 ATM",
-		"2026-02-01 Card -12.50 NEW PLACE (uncategorized)",
-		"2026-02-01 Card -12.50 OLD PLACE: Phone -> Food (rule-c)",
-		"proposed rules (1), from 3 or more matching categorizations (39 of 40 right in backtest):",
-		`payee = "(?i)\\bCAFE[^A-Za-z]*ONE\\b"`,
-		`category = "Food" # 4 categorizations of CAFE ONE`,
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("report lacks %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestWriteRunListsTheReceiptsItCouldntUseAfterTheChanges(t *testing.T) {
-	r := Run{
-		RunID:   "RUN1",
-		Changes: []categorize.Change{{Charge: 1, Before: ledger.State{Category: 3}, After: ledger.State{Category: 5}, Source: "rule-a"}},
-		Applied: 1,
-		Receipts: Receipts{
-			Unreadable: []Unreadable{{Received: time.Date(2026, 11, 2, 6, 19, 0, 0, time.UTC), Why: "no total"}},
-			Unmatched:  []grab.Payment{{Booking: "A-TESTRIDE0001", Service: "Standard", THB: 78, At: time.Date(2026, 11, 1, 13, 5, 0, 0, time.UTC), Account: "a@example.com"}},
-		},
-		Titles:       titles,
-		Transactions: map[int64]ledger.Transaction{1: rtx(1, "SHOP", 3)},
-	}
-	var b strings.Builder
-	if err := WriteRun(&b, r); err != nil {
-		t.Fatal(err)
-	}
-	want := "changed (1):\n  2026-02-01 Card -12.50 SHOP: Phone -> Food (rule-a)\n" +
-		"grab receipts not read (1):\n  2026-11-02 no total\n" +
-		"grab receipts matching no charge (1):\n  a@example.com A-TESTRIDE0001 Standard 2026-11-01 13:05 THB 78.00\n" +
-		"trips added (0):\n"
-	if !strings.Contains(b.String(), want) {
-		t.Errorf("report lacks %q:\n%s", want, b.String())
-	}
-}
-
-func TestWriteRunSaysWhenTheReceiptsWereMatchedOnStaleRates(t *testing.T) {
-	r := Run{RunID: "RUN1", Titles: titles, Receipts: Receipts{StaleRates: errors.New("rates kept through 2026-11-03: frankfurter: 522")}}
-	var b strings.Builder
-	if err := WriteRun(&b, r); err != nil {
-		t.Fatal(err)
-	}
-	want := "changed (0):\ngrab receipts matched on stale rates: rates kept through 2026-11-03: frankfurter: 522\ngrab receipts not read (0):\n"
-	if !strings.Contains(b.String(), want) {
-		t.Errorf("report lacks %q:\n%s", want, b.String())
-	}
-	b.Reset()
-	if err := WriteRun(&b, Run{RunID: "RUN1", Titles: titles}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(b.String(), "stale") {
-		t.Errorf("report with fetched rates mentions stale ones:\n%s", b.String())
-	}
-}
-
-func TestWriteRunWithoutAThreshold(t *testing.T) {
-	var b strings.Builder
-	if err := WriteRun(&b, Run{RunID: "(none)", Titles: titles}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(b.String(), "no proposals: the backtest found no evidence count reaching 95%") {
-		t.Errorf("report:\n%s", b.String())
-	}
-}
-
 func TestWriteReplay(t *testing.T) {
 	st := []rules.Stats{{Rule: rules.Rule{Payee: "(?i)acme", Category: "Phone"}, Matches: 2, Agree: 1, Disagree: []ledger.Transaction{rtx(1, "ACME 2", 5)}}}
 	from, _ := day.Parse("2025-01-01")
@@ -129,40 +42,6 @@ func TestWriteReplay(t *testing.T) {
 		`payee="(?i)acme"`,
 		"2 matches, 1 agree",
 		"2026-02-01 Card -12.50 ACME 2: you chose Food, rule says Phone",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("report lacks %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestWriteRunListsAttention(t *testing.T) {
-	march := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	r := Run{
-		RunID:        "RUN2",
-		Flags:        []categorize.Change{{Charge: 2, Before: ledger.State{Category: 9}, After: ledger.State{Category: 9, NeedsReview: true}}},
-		FlagsApplied: 1,
-		Reasons:      map[int64][]string{2: {"attention-new-payee", "attention-large"}},
-		Income: []attention.Cycle{
-			{Month: march, Expected: 7500, Actual: 9200, Ready: true},
-			{Month: march.AddDate(0, 1, 0), Actual: 6000},
-		},
-		Tolerance:    1500,
-		Titles:       titles,
-		Transactions: map[int64]ledger.Transaction{2: rtx(2, "ATM", 9)},
-	}
-	var b strings.Builder
-	if err := WriteRun(&b, r); err != nil {
-		t.Fatal(err)
-	}
-	out := b.String()
-	for _, want := range []string{
-		"run RUN2: applied 1 of 1 changes",
-		"needing your attention (1):",
-		"2026-02-01 Card -12.50 ATM: attention-new-payee, attention-large",
-		"monthly income (2 cycles):",
-		"2026-03: expected 7500.00, got 9200.00, off by 1700.00: mismatch",
-		"2026-04: got 6000.00, waiting for the card bill and rent",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
@@ -228,34 +107,6 @@ const reportEvidence = "    calendar: flight out HMT-FAR ZZ101 2026-03-10\n" +
 	"    calendar: flight back FAR-HMT ZZ102 2026-03-14\n" +
 	"    card: new place NOODLES FARCITY 2026-03-11..2026-03-13\n"
 
-func TestWriteRunListsTripsWithTheirEvidenceAndHints(t *testing.T) {
-	r := Run{RunID: "R", Applied: 3, Titles: titles, Transactions: map[int64]ledger.Transaction{},
-		Changes: []categorize.Change{
-			{Charge: 1, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10"},
-			{Charge: 2, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10 refund of 1"},
-			{Charge: 3, After: ledger.State{Category: 5}, Source: "trips: trip-booking"},
-			{Charge: 4, After: ledger.State{Category: 5}, Source: "trips: trip-2026-03-10"},
-		},
-		TripsAdded: []trips.Inferred{reportInferred("trip-2026-03-10", true)}, TripVersions: []trips.Trip{reportTrip("trip-japan", false)},
-		Hints: []trips.Hint{{Edited: reportTrip("trip-farcity", false), Inferred: reportInferred("trip-2026-03-10", false)}},
-	}
-	var b strings.Builder
-	if err := WriteRun(&b, r); err != nil {
-		t.Fatal(err)
-	}
-	out := b.String()
-	for _, want := range []string{
-		"trips added (1):\n  trip-2026-03-10 2026-03-10..2026-03-14 (visa run)\n" + reportEvidence,
-		"trips you edited that inference reaches beyond, left as they are (1):\n  trip-farcity 2026-03-10..2026-03-14: inferred 2026-03-10..2026-03-14\n" + reportEvidence,
-		"trips with new names or dates (1):\n  trip-japan 2026-03-10..2026-03-14\n",
-		"placed on trips (2):\n  trip-2026-03-10: 2\n  trip-booking: 1\n",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("report lacks %q:\n%s", want, out)
-		}
-	}
-}
-
 func TestWriteReplayListsInferredTripsWithTheirEvidence(t *testing.T) {
 	var b strings.Builder
 	if err := WriteReplay(&b, Replay{Trips: []trips.Inferred{reportInferred("trip-2026-03-10", false)}}); err != nil {
@@ -264,4 +115,278 @@ func TestWriteReplayListsInferredTripsWithTheirEvidence(t *testing.T) {
 	if want := "trips inferred (1):\n  trip-2026-03-10 2026-03-10..2026-03-14\n" + reportEvidence; !strings.Contains(b.String(), want) {
 		t.Errorf("report lacks %q:\n%s", want, b.String())
 	}
+}
+
+var runAt = time.Date(2026, 11, 4, 9, 30, 0, 0, time.UTC)
+
+// write is r's report, with its run time set.
+func write(t *testing.T, r Run) string {
+	t.Helper()
+	r.At = runAt
+	if r.Titles == nil {
+		r.Titles = titles
+	}
+	var b strings.Builder
+	if err := WriteRun(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+// body is the body of the report's section titled title with its spacing collapsed, a line
+// a row; ok is false when the report has no such section.
+func body(out, title string) (string, bool) {
+	_, rest, ok := strings.Cut(out, "\n"+title+"\n")
+	b, _, _ := strings.Cut(rest, "\n\n")
+	lines := strings.Split(strings.TrimSuffix(b, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = strings.Join(strings.Fields(l), " ")
+	}
+	return strings.Join(lines, "\n"), ok
+}
+
+// sections are the report's group and section titles in order: its lines that follow a
+// blank line.
+func sections(out string) []string {
+	var titles []string
+	lines := strings.Split(out, "\n")
+	for i := 1; i < len(lines); i++ {
+		if lines[i-1] == "" && lines[i] != "" {
+			titles = append(titles, lines[i])
+		}
+	}
+	return titles
+}
+
+func TestAppliedChangesAreGroupedByWhyTheyWereMade(t *testing.T) {
+	change := func(id int64, before, after ledger.CategoryID, reason categorize.Reason) categorize.Change {
+		return categorize.Change{Charge: id, Before: ledger.State{Category: before}, After: ledger.State{Category: after}, Source: "s", Reason: reason}
+	}
+	r := Run{
+		Changes: []categorize.Change{
+			change(1, 3, 5, categorize.Reason{Why: categorize.OnTrip, Trip: "trip-2026-01-farcity"}),
+			change(2, 3, 5, categorize.Reason{Why: categorize.ByReceipt, Booking: "A-TESTRIDE0001"}),
+			change(3, 3, 5, categorize.Reason{Why: categorize.Refund, Trip: trips.Booking}),
+			change(4, 5, 5, categorize.Reason{Why: categorize.ByRule, Rule: "SHOP"}),
+			change(5, 3, 5, categorize.Reason{Why: categorize.OffTrip}),
+			change(6, 3, 5, categorize.Reason{}),
+			change(7, 3, 5, categorize.Reason{Why: categorize.ByRule, Rule: "CAFE"}),
+		},
+		Applied: 7,
+		Transactions: map[int64]ledger.Transaction{
+			1: rtx(1, "HOTEL", 3), 2: rtx(2, "GRAB", 3), 3: rtx(3, "AIRLINE", 3), 4: rtx(4, "SHOP", 5), 5: rtx(5, "NOODLES", 3), 6: rtx(6, "ODD", 3), 7: rtx(7, "CAFE", 3),
+		},
+	}
+	out := write(t, r)
+	want := []string{"APPLIED", "Grab Receipts", "Confirmed by Rule", "Rules", "Trips", "Removed from Trips", "Refunds", "Other"}
+	if got := sections(out); !slices.Equal(got, want) {
+		t.Errorf("sections %q, want %q\n%s", got, want, out)
+	}
+	for title, row := range map[string]string{
+		"Grab Receipts":      "Feb 1 −12.50 Phone → Food A-TESTRIDE0001",
+		"Confirmed by Rule":  "Feb 1 SHOP −12.50 Food SHOP",
+		"Rules":              "Feb 1 CAFE −12.50 Phone → Food CAFE",
+		"Trips":              "Feb 1 HOTEL −12.50 Phone → Food Farcity trip",
+		"Removed from Trips": "Feb 1 NOODLES −12.50 Phone → Food",
+		"Refunds":            "Feb 1 AIRLINE −12.50 Phone → Food trip booking",
+		"Other":              "Feb 1 ODD −12.50 Phone → Food s",
+	} {
+		if b, _ := body(out, title); !strings.Contains(b, row) {
+			t.Errorf("%s lacks %q:\n%s", title, row, out)
+		}
+	}
+}
+
+func TestARuleKeepingTheCategoryConfirmsIt(t *testing.T) {
+	r := Run{
+		Changes: []categorize.Change{{Charge: 1, Before: ledger.State{Category: 5, NeedsReview: true}, After: ledger.State{Category: 5, Labels: []string{"auto-rule"}},
+			Reason: categorize.Reason{Why: categorize.ByRule, Rule: "SHOP"}}},
+		Applied:      1,
+		Transactions: map[int64]ledger.Transaction{1: rtx(1, "SHOP", 5)},
+	}
+	out := write(t, r)
+	b, ok := body(out, "Confirmed by Rule")
+	if !ok || strings.Contains(b, "→") || !strings.Contains(b, "Food SHOP") {
+		t.Errorf("want the charge confirmed in Food by rule SHOP:\n%s", out)
+	}
+	if _, ok := body(out, "Rules"); ok {
+		t.Errorf("a confirmation is listed among the rules' changes:\n%s", out)
+	}
+}
+
+func TestEmptySectionsAreLeftOut(t *testing.T) {
+	out := write(t, Run{ThresholdFound: true, Trials: []learn.Trial{{Min: 3, Evaluated: 40, Correct: 39}}, Threshold: 3})
+	if want := "Run 2026-11-04 09:30 · 0 of 0 changes applied\n"; out != want {
+		t.Errorf("report of an empty run = %q, want %q", out, want)
+	}
+}
+
+func TestTripCorrectionsAreReferenceListedOnce(t *testing.T) {
+	r := Run{
+		Corrections: []categorize.Change{
+			{Charge: 1, Before: ledger.State{Category: 9, Labels: []string{"auto-trip"}}, After: ledger.State{Category: 9}},
+			{Charge: 2, Before: ledger.State{Category: 3, Labels: []string{"auto-rule"}}, After: ledger.State{Category: 3}},
+		},
+		Amendments:   []categorize.Change{{Charge: 1, Before: ledger.State{Category: 5}, After: ledger.State{Category: 9}, Source: "trips: trip-2026-01-farcity"}},
+		Transactions: map[int64]ledger.Transaction{1: rtx(1, "HOTEL", 9), 2: rtx(2, "ATM", 3)},
+	}
+	out := write(t, r)
+	if want := []string{"REFERENCE", "Corrected Trip Categories", "Corrections"}; !slices.Equal(sections(out), want) {
+		t.Errorf("sections %q, want %q\n%s", sections(out), want, out)
+	}
+	if b, _ := body(out, "Corrected Trip Categories"); !strings.Contains(b, "Feb 1 HOTEL −12.50 Food Cash") {
+		t.Errorf("want the hotel's correction from Food to Cash:\n%s", out)
+	}
+	if b, _ := body(out, "Corrections"); strings.Contains(b, "HOTEL") || !strings.Contains(b, "Feb 1 ATM −12.50 Phone") {
+		t.Errorf("want the ATM's correction alone:\n%s", out)
+	}
+	if subject, due := Notice(r); due {
+		t.Errorf("Notice = %q, true; want no notice for a trip correction", subject)
+	}
+}
+
+func TestARuleAmendmentNeedsTheUser(t *testing.T) {
+	rule := rules.Rule{Payee: "(?i)^atm", Category: "Food"}
+	r := Run{
+		Amendments:   []categorize.Change{{Charge: 2, Before: ledger.State{Category: 5}, After: ledger.State{Category: 9}, Source: rule.Key()}},
+		Transactions: map[int64]ledger.Transaction{2: rtx(2, "ATM", 9)},
+	}
+	out := write(t, r)
+	b, ok := body(out, "Rule Amendments")
+	if !ok || !strings.Contains(b, "Feb 1 ATM −12.50 ^atm Food Cash") {
+		t.Errorf("want rule ^atm's Food amended to Cash:\n%s", out)
+	}
+	if subject, due := Notice(r); !due || subject != "Categorizer: 1 rule amendment" {
+		t.Errorf("Notice = %q, %v; want Categorizer: 1 rule amendment", subject, due)
+	}
+}
+
+func TestReviewReasonsReadAsPhrases(t *testing.T) {
+	r := Run{
+		Flags:        []categorize.Change{{Charge: 2, Before: ledger.State{Category: 9}, After: ledger.State{Category: 9, NeedsReview: true}}},
+		FlagsApplied: 1,
+		Reasons:      map[int64][]string{2: {attention.NewPayee, attention.Large}},
+		Transactions: map[int64]ledger.Transaction{2: rtx(2, "ATM", 9)},
+	}
+	out := write(t, r)
+	if b, _ := body(out, "Review Reasons"); b != "Feb 1 ATM −12.50 new payee, larger than usual" {
+		t.Errorf("Review Reasons = %q\n%s", b, out)
+	}
+	if !strings.HasPrefix(out, "Run 2026-11-04 09:30 · 1 of 1 changes applied\n") {
+		t.Errorf("header counts the flag:\n%s", out)
+	}
+}
+
+var update = flag.Bool("update", false, "rewrite the golden reports")
+
+// golden compares got with the golden file name in testdata, rewriting it under -update.
+func golden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if *update {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Errorf("report differs from %s:\n%s", path, got)
+	}
+}
+
+// fixtureRun is a run with something in every section.
+func fixtureRun() Run {
+	cats := map[ledger.CategoryID]string{1: "Groceries", 2: "Eating Out", 3: "Rides", 4: "Discretionary", 5: "Trip Food", 6: "Trip Lodging", 7: "Trip Transport", 8: "Monthly Income"}
+	on := func(d string) time.Time {
+		dd, err := day.Parse(d)
+		if err != nil {
+			panic(err)
+		}
+		return dd
+	}
+	card, checking := ledger.Account{Name: "Card"}, ledger.Account{Name: "Checking"}
+	txs := map[int64]ledger.Transaction{}
+	tx := func(id int64, d string, a float64, payee string, account ledger.Account, cat ledger.CategoryID) ledger.Transaction {
+		t := ledger.Transaction{ID: id, Date: on(d), Amount: a, Payee: payee, Account: account, State: ledger.State{Category: cat}}
+		txs[id] = t
+		return t
+	}
+	change := func(id int64, after ledger.CategoryID, reason categorize.Reason) categorize.Change {
+		return categorize.Change{Charge: id, Before: txs[id].State, After: ledger.State{Category: after}, Source: "source", Reason: reason}
+	}
+	tx(101, "2026-11-03", -4.2, "GRAB RIDES", card, 2)
+	tx(102, "2026-11-02", -15.75, "GRAB RIDES", card, 2)
+	tx(103, "2026-10-30", -23, "CORNER BOOKS", card, 4)
+	tx(104, "2025-01-15", 1250, "SPARKLE MARKET", card, 1)
+	tx(105, "2026-10-12", -88.4, "HARBOUR HOTEL", card, 4)
+	tx(106, "2026-09-20", 12, "LANTERN CAFE", card, 5)
+	tx(107, "2026-10-20", 88.4, "HARBOUR HOTEL", card, 4)
+	tx(108, "2026-10-25", 300, "FERRY LINE", card, 7)
+	tx(109, "2026-10-01", -8.65, "MYSTERY SHOP", card, 4)
+	tx(110, "2026-11-01", -64.8, "PET CLINIC", card, 0)
+	tx(111, "2026-11-04", -35.5, "NEW DINER", card, 2)
+	undecided := tx(112, "2026-10-05", -42, "QUIET SHOP", checking, 4)
+	suggested := tx(113, "2026-08-08", -19.5, "CORNER BOOKS", card, 1)
+	tx(114, "2026-09-14", -18, "BOOK NOOK", card, 1)
+	tx(115, "2026-10-14", -11.3, "SEASIDE TAXI", card, 7)
+	tx(116, "2026-09-02", -7.25, "OLD MARKET", card, 1)
+	seaside := "trip-2026-10-seaside"
+	return Run{
+		RunID: "20261104T093000.000000000Z", At: runAt, Titles: cats, Transactions: txs,
+		Changes: []categorize.Change{
+			change(101, 3, categorize.Reason{Why: categorize.ByReceipt, Booking: "A-FAKE0001"}),
+			change(102, 2, categorize.Reason{Why: categorize.ByReceipt, Booking: "A-FAKE0002"}),
+			change(103, 4, categorize.Reason{Why: categorize.ByRule, Rule: "CORNER BOOKS"}),
+			change(104, 4, categorize.Reason{Why: categorize.ByRule, Rule: "SPARKLE"}),
+			change(105, 6, categorize.Reason{Why: categorize.OnTrip, Trip: seaside}),
+			change(106, 2, categorize.Reason{Why: categorize.OffTrip}),
+			change(107, 6, categorize.Reason{Why: categorize.Refund, Trip: seaside}),
+			change(108, 7, categorize.Reason{Why: categorize.Refund, Trip: trips.Booking}),
+			change(109, 4, categorize.Reason{}),
+			change(110, 4, categorize.Reason{Why: categorize.ByRule, Rule: "PET CLINIC"}),
+		},
+		Applied:      9,
+		Flags:        []categorize.Change{{Charge: 111, Before: txs[111].State, After: ledger.State{Category: 2, NeedsReview: true}}},
+		FlagsApplied: 1,
+		Reasons:      map[int64][]string{111: {attention.NewPayee, attention.Large}, 105: {trips.Placed}},
+		Income: []attention.Cycle{
+			{Month: on("2026-10-01"), Expected: 5000, Actual: 5400, Ready: true},
+			{Month: on("2026-11-01"), Actual: 5100},
+		},
+		Tolerance: 300,
+		Corrections: []categorize.Change{
+			{Charge: 114, Before: ledger.State{Category: 1, Labels: []string{"auto-rule"}}, After: ledger.State{Category: 1}},
+			{Charge: 115, Before: ledger.State{Category: 7, Labels: []string{"auto-trip"}}, After: ledger.State{Category: 7}},
+			{Charge: 116, Before: ledger.State{Category: 1, Labels: []string{"auto-rule"}}, After: ledger.State{Category: 1}},
+		},
+		Amendments: []categorize.Change{
+			{Charge: 114, Before: ledger.State{Category: 4}, After: ledger.State{Category: 1}, Source: rules.Rule{Payee: "(?i)BOOK NOOK", Category: "Discretionary"}.Key()},
+			{Charge: 115, Before: ledger.State{Category: 6}, After: ledger.State{Category: 7}, Source: "trips: " + seaside},
+		},
+		Undecided:      []ledger.Transaction{undecided},
+		Suggestions:    []decide.Suggestion{{Transaction: suggested, Decision: decide.Decision{Category: 4, Reason: categorize.Reason{Why: categorize.ByRule, Rule: "CORNER BOOKS"}}}},
+		Proposals:      []learn.Proposal{{Key: "TEA HOUSE", Category: 2, Count: 3, Pattern: learn.Pattern("TEA HOUSE")}},
+		Threshold:      3,
+		ThresholdFound: true,
+		Trials:         []learn.Trial{{Min: 2, Evaluated: 60, Correct: 50}, {Min: 3, Evaluated: 50, Correct: 48}},
+		TripsAdded:     []trips.Inferred{reportInferred("trip-2026-03-10", true)},
+		TripVersions:   []trips.Trip{reportTrip("trip-2026-03-farcity", false)},
+		Hints:          []trips.Hint{{Edited: reportTrip("trip-2026-03-farcity", false), Inferred: reportInferred("trip-2026-03-10", false)}},
+		Receipts: Receipts{
+			Unreadable: []Unreadable{{ID: "m1", Received: time.Date(2026, 11, 2, 6, 19, 0, 0, time.UTC), Why: "no total"}},
+			Unmatched:  []grab.Payment{{Booking: "A-FAKE0003", Service: "Standard", THB: 83, At: time.Date(2026, 11, 1, 13, 5, 0, 0, time.UTC), Account: "rider@example.com"}},
+			StaleRates: errors.New("rates kept through 2026-11-03: fx: 503"),
+		},
+	}
+}
+
+func TestWriteRunGolden(t *testing.T) {
+	var b strings.Builder
+	if err := WriteRun(&b, fixtureRun()); err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "run.txt", b.String())
 }

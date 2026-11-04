@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
@@ -156,5 +157,32 @@ func TestReplayCountsAgreementWithTheUser(t *testing.T) {
 	st := rs.Replay(txs)
 	if len(st) != 1 || st[0].Matches != 2 || st[0].Agree != 1 || len(st[0].Disagree) != 1 || st[0].Disagree[0].Payee != "ACME 2" {
 		t.Errorf("Replay = %+v", st)
+	}
+}
+
+func TestADecisionNamesItsRule(t *testing.T) {
+	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)fitapp\"\ncategory = \"Food\"\n")
+	d, _ := rs.Decide(tx("GOOGLE *Fitapp", "Card", -5, ledger.State{}))
+	if want := (categorize.Reason{Why: categorize.ByRule, Rule: "fitapp"}); d.Reason != want {
+		t.Errorf("reason = %+v, want %+v", d.Reason, want)
+	}
+}
+
+func TestARuleIsNamedByItsPayeePatternElseItsAccount(t *testing.T) {
+	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)^Cafe\\\\*One\"\naccount = \"Card\"\ncategory = \"Food\"\n"+
+		"[[rule]]\npayee = \"Shop (?i)two\"\ncategory = \"Food\"\n"+
+		"[[rule]]\naccount = \"Checking\"\ntype = \"credit\"\ncategory = \"Cash\"\n")
+	for i, want := range []string{`^Cafe\*One`, "Shop (?i)two", "account Checking"} {
+		if got := rs[i].Name(); got != want {
+			t.Errorf("rule %d: Name = %q, want %q", i, got, want)
+		}
+		if got, ok := KeyName(rs[i].Key()); !ok || got != want {
+			t.Errorf("rule %d: KeyName = %q, %t; want %q", i, got, ok, want)
+		}
+	}
+	for _, source := range []string{"grab A-TESTRIDE0001", "trips: trip-abroad", ""} {
+		if got, ok := KeyName(source); ok {
+			t.Errorf("KeyName(%q) = %q; want no rule", source, got)
+		}
 	}
 }

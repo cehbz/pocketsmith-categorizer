@@ -14,8 +14,9 @@ import (
 // Decision is a layer's category for a transaction.
 type Decision struct {
 	Category ledger.CategoryID
-	Label    string // the deciding layer's label
-	Source   string // what decided, such as a rule's key
+	Label    string            // the deciding layer's label
+	Source   string            // what decided, such as a rule's key
+	Reason   categorize.Reason // why, for the run's report
 }
 
 // Layer decides a transaction's category or abstains.
@@ -61,7 +62,7 @@ func Make(txs []ledger.Transaction, layers []Layer, set map[int64]categorize.Cha
 		case inScope && decided:
 			after := ledger.State{Category: d.Category, NeedsReview: t.State.NeedsReview && t.State.Flagged(), Labels: append(t.State.UserLabels(), d.Label)}
 			if !t.State.Equal(after) {
-				p.Changes = append(p.Changes, categorize.Change{Charge: t.ID, Before: t.State, After: after, Source: d.Source})
+				p.Changes = append(p.Changes, categorize.Change{Charge: t.ID, Before: t.State, After: after, Source: d.Source, Reason: d.Reason})
 			}
 		case inScope && t.State.NeedsReview:
 			p.Undecided = append(p.Undecided, t)
@@ -133,7 +134,7 @@ func flagged(s ledger.State, reasons []string) ledger.State {
 }
 
 // Place takes the trips layer's placements: a planned change to the same transaction takes
-// the placement's After and Source, a change that leaves its transaction as it was is
+// the placement's After, Source and Reason, a change that leaves its transaction as it was is
 // dropped, and any other placement becomes a change of its own. A transaction placed in a
 // category the categorizer owns is no longer undecided.
 func (p *Plan) Place(placed []categorize.Change) {
@@ -144,7 +145,7 @@ func (p *Plan) Place(placed []categorize.Change) {
 	decided := map[int64]bool{}
 	for _, pl := range placed {
 		if i, ok := at[pl.Charge]; ok {
-			p.Changes[i].After, p.Changes[i].Source = pl.After, pl.Source
+			p.Changes[i].After, p.Changes[i].Source, p.Changes[i].Reason = pl.After, pl.Source, pl.Reason
 		} else {
 			at[pl.Charge] = len(p.Changes)
 			p.Changes = append(p.Changes, pl)

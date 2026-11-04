@@ -90,6 +90,7 @@ type runner struct {
 // run decides, places, flags and applies a run's changes, lists the trips it changed, and
 // reports.
 func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
+	started := time.Now().In(s.loc)
 	shown, judged, placed, store, tripStore := r.shown, r.judged, r.placed, r.journal, r.trips
 	last, err := store.LastSet()
 	if err != nil {
@@ -198,7 +199,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		}
 	}
 	err = r.deliver(ctx, out, report.Run{
-		RunID: runID, Changes: plan.Changes, Applied: decisions,
+		RunID: runID, At: started, Changes: plan.Changes, Applied: decisions,
 		Corrections: corrections, Amendments: amendments,
 		Undecided: plan.Undecided, Suggestions: suggestions,
 		Proposals: proposals, Threshold: threshold, ThresholdFound: found, Trials: trials,
