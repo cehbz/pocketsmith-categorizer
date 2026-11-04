@@ -12,3 +12,4 @@
 - Five Grab receipts from 2026-10-28 to 2026-11-02 match no charge, though every Grab charge is on one card; two are a booking's second receipt whose first matched. Not investigated.
 - Each run reads the lookback year's Grab receipts one request per message, and lists every unmatched receipt again, including those whose charge hasn't posted yet.
 - `cmd/categorize` and `cmd/cleanup` each carry the same `period` helper.
+- `categorize auth` prints the consent URL and waits; open it in the browser itself, so the consent page appears without copying the URL.
