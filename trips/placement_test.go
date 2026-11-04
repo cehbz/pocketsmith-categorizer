@@ -330,6 +330,41 @@ func TestCreditsThatArentRefundsStay(t *testing.T) {
 	}
 }
 
+// paidVia is an online transaction through a payment gateway whose payee doesn't name the
+// merchant to the payee key; its record names merchant, or nothing.
+func paidVia(id int64, d string, amount float64, payee, merchant, code string) Transaction {
+	t := online(id, d, amount, merchant, code, ledger.State{Category: 7})
+	t.Payee = payee
+	return t
+}
+
+func TestARefundWithoutAMerchantNameFollowsTheChargesItsPayeeNames(t *testing.T) {
+	p := placer(abroad).Place([]Transaction{
+		paidVia(1, "2026-09-01", -2, "WWW.PAYCO.COM5550001", "", "4511"), // an unnamed booking through the gateway
+		paidVia(2, "2026-09-02", -300, "WWW.PAYCO.COM*AIRCO", "AirCo", "3008"),
+		paidVia(3, "2026-09-10", -20, "WWW.PAYCO.COM*SHOPCO PAY", "ShopCo Pay", "5262"),
+		paidVia(4, "2026-09-12", 20, "WWW.PAYCO.COM*SHOPCO PAY", "", ""),
+		paidVia(5, "2026-09-15", 300, "WWW.PAYCO.COM*AIRCO", "", ""),
+	})
+	unchanged(t, p, 4)
+	wantState(t, p, 5, ledger.State{Category: 101, Labels: []string{Label, Booking}})
+	if c, _ := placed(p, 5); c.Source != "trips: trip-booking refund of 2" {
+		t.Errorf("refund source = %q, want trips: trip-booking refund of 2", c.Source)
+	}
+}
+
+func TestARefundWhosePayeeCarriesTwoMerchantNamesKeepsItsPayeeKey(t *testing.T) {
+	p := placer(abroad).Place([]Transaction{
+		paidVia(1, "2026-09-01", -300, "WWW.PAYCO.COM", "AirCo", "3008"),
+		paidVia(2, "2026-09-05", -20, "WWW.PAYCO.COM", "ShopCo Pay", "5262"),
+		paidVia(3, "2026-09-02", -50, "WWW PAYCO 77", "", "4511"),
+		paidVia(4, "2026-09-12", 300, "WWW.PAYCO.COM", "", ""),
+	})
+	if c, _ := placed(p, 4); c.Source != "trips: trip-booking refund of 3" {
+		t.Errorf("refund source = %q, want trips: trip-booking refund of 3, the payee key's charge", c.Source)
+	}
+}
+
 func TestATravelCodeOutsideEveryTripIsABooking(t *testing.T) {
 	p := placer(abroad).Place([]Transaction{
 		txn(1, "2026-11-01", -500, "UNITED", "3000", ledger.State{Category: 7}),

@@ -185,13 +185,14 @@ func (w *placing) claimed(t Transaction) bool {
 // of its charge's amount is unsure. An ATM fee rebate follows its account's latest
 // withdrawal instead, and is never unsure.
 func (w *placing) refunds(txs []Transaction) {
+	names := namesOf(txs)
 	charges := map[string][]Transaction{}     // by merchant
 	withdrawals := map[string][]Transaction{} // by account
 	for _, t := range txs {
 		if !t.Charge() {
 			continue
 		}
-		charges[t.Merchant()] = append(charges[t.Merchant()], t)
+		charges[names.merchant(t)] = append(charges[names.merchant(t)], t)
 		if w.Settings.IsCash(t) {
 			withdrawals[t.Account.Name] = append(withdrawals[t.Account.Name], t)
 		}
@@ -210,7 +211,7 @@ func (w *placing) refunds(txs []Transaction) {
 			w.hold(t)
 			continue
 		}
-		c, within, ok := follows(t, charges[t.Merchant()])
+		c, within, ok := follows(t, charges[names.merchant(t)])
 		if w.Settings.IsCash(t) {
 			c, ok = latest(t, withdrawals[t.Account.Name])
 			within = true
@@ -242,6 +243,40 @@ func (w *placing) refunds(txs []Transaction) {
 		}
 	}
 }
+
+// names are the merchant names charges' records give their payees: a gateway's refund often
+// has no record name while its charges do, and its payee key can be the gateway's alone.
+type names map[string]string // by payee; empty when the payee's charges carry two names
+
+// namesOf is the record name each payee's charges in txs carry.
+func namesOf(txs []Transaction) names {
+	out := names{}
+	for _, t := range txs {
+		if !t.Charge() || t.Details.Merchant == "" {
+			continue
+		}
+		p := payeeText(t.Payee)
+		if n, ok := out[p]; ok && n != t.Details.Merchant {
+			out[p] = ""
+			continue
+		}
+		out[p] = t.Details.Merchant
+	}
+	return out
+}
+
+// merchant is t's merchant, its payee's name when its record names none.
+func (ns names) merchant(t Transaction) string {
+	if t.Details.Merchant == "" {
+		if n := ns[payeeText(t.Payee)]; n != "" {
+			return strings.ToUpper(n)
+		}
+	}
+	return t.Merchant()
+}
+
+// payeeText is payee upper-cased with its spacing collapsed.
+func payeeText(payee string) string { return strings.ToUpper(strings.Join(strings.Fields(payee), " ")) }
 
 // follows is the charge credit follows: its merchant's latest charge on or before it within
 // 3% of its amount, else the latest; ok is false when there is none.
