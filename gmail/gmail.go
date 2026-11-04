@@ -49,6 +49,7 @@ const pageSize = 500
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	Log     io.Writer // where a message the listing repeats is noted; nil discards
 }
 
 // Message is one message's arrival, recipient and text.
@@ -78,13 +79,14 @@ type part struct {
 }
 
 // Messages reads the messages query finds that arrived from from to the end of to's day, a
-// page of ids at a time, each message in full.
+// page of ids at a time, each message once and in full.
 func (c *Client) Messages(ctx context.Context, query string, from, to time.Time) ([]Message, error) {
 	q := url.Values{
 		"q":          {fmt.Sprintf("%s after:%d before:%d", query, from.Unix(), to.AddDate(0, 0, 1).Unix())},
 		"maxResults": {strconv.Itoa(pageSize)},
 	}
 	var out []Message
+	seen := map[string]bool{}
 	for {
 		var page struct {
 			Messages []struct {
@@ -96,6 +98,13 @@ func (c *Client) Messages(ctx context.Context, query string, from, to time.Time)
 			return nil, err
 		}
 		for _, ref := range page.Messages {
+			if seen[ref.ID] {
+				if c.Log != nil {
+					fmt.Fprintf(c.Log, "gmail: %q listed message %s again; read once\n", query, ref.ID)
+				}
+				continue
+			}
+			seen[ref.ID] = true
 			var m message
 			if err := c.get(ctx, "/users/me/messages/"+url.PathEscape(ref.ID), url.Values{"format": {"full"}}, &m); err != nil {
 				return nil, err

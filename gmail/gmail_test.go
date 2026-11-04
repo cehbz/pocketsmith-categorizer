@@ -157,6 +157,29 @@ func TestMessagesPaging(t *testing.T) {
 	}
 }
 
+func TestAMessageTheListingRepeatsIsReadOnceAndLogged(t *testing.T) {
+	msgs := map[string]map[string]any{}
+	for i, id := range []string{"m1", "m2", "m3"} {
+		msgs[id] = fakeMessage(id, from.Add(time.Duration(i)*time.Hour), "a@example.com", fakePart("text/plain", base64.URLEncoding, "receipt "+id))
+	}
+	srv, _ := mailbox(t, [][]string{{"m1", "m2"}, {"m2", "m3"}}, msgs)
+	var log strings.Builder
+	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client(), Log: &log}).Messages(context.Background(), "from:x", from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range got {
+		ids = append(ids, m.ID)
+	}
+	if want := []string{"m1", "m2", "m3"}; !reflect.DeepEqual(ids, want) {
+		t.Errorf("got %v; want %v", ids, want)
+	}
+	if !strings.Contains(log.String(), "m2") {
+		t.Errorf("log %q doesn't name the repeated message m2", log.String())
+	}
+}
+
 func TestMessagesQuery(t *testing.T) {
 	srv, queries := mailbox(t, [][]string{nil}, nil)
 	if _, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to); err != nil {

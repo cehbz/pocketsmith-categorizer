@@ -130,7 +130,7 @@ func openGoogle(ctx context.Context, c config.Calendar) (*gcal.Client, *gmail.Cl
 	if err != nil {
 		return nil, nil, err
 	}
-	return &gcal.Client{BaseURL: gcal.BaseURL, ID: c.ID, HTTP: h}, &gmail.Client{BaseURL: gmail.BaseURL, HTTP: h}, nil
+	return &gcal.Client{BaseURL: gcal.BaseURL, ID: c.ID, HTTP: h}, &gmail.Client{BaseURL: gmail.BaseURL, HTTP: h, Log: os.Stderr}, nil
 }
 
 // googleOAuth is the Google OAuth client reading the calendar and Gmail and inserting notices
