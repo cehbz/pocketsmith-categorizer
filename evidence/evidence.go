@@ -42,6 +42,7 @@ type Receipt struct {
 	Parts    []Part    `json:"parts"`
 	Fee      float64   `json:"fee,omitempty"`      // the merchant's fee on top of the parts, THB
 	Checkout string    `json:"checkout,omitempty"` // a merchant's receipts sharing one are one checkout
+	Unpriced bool      `json:"unpriced,omitempty"` // the merchant gave no amount, as a Lazada tax invoice doesn't
 }
 
 // THB is what the receipt's charge pays: its parts and its fee.
@@ -53,10 +54,9 @@ func (r Receipt) THB() float64 {
 	return sum
 }
 
-// Amountless reports whether the receipt gives no amount for any of its parts.
-func (r Receipt) Amountless() bool {
-	return !slices.ContainsFunc(r.Parts, func(p Part) bool { return p.THB != 0 })
-}
+// Amountless reports whether the merchant gave no amount for the receipt, as opposed to an
+// amount of zero.
+func (r Receipt) Amountless() bool { return r.Unpriced }
 
 // Ref names the receipt by its parts' references, joined by "+".
 func (r Receipt) Ref() string {
@@ -159,12 +159,20 @@ func Checkouts(receipts []Receipt) []Receipt {
 		c.Parts = append(c.Parts, r.Parts...)
 		slices.SortFunc(c.Parts, func(a, b Part) int { return cmp.Compare(a.Ref, b.Ref) })
 		c.Fee += r.Fee
+		c.Unpriced = c.Unpriced && r.Unpriced
 		if r.At.Before(c.At) {
 			c.At = r.At
 		}
 	}
 	slices.SortStableFunc(out, func(a, b Receipt) int { return a.At.Compare(b.At) })
 	return out
+}
+
+// Bills reports whether every part of the receipt is a bill of some utility.
+func (r Receipt) Bills() bool {
+	return len(r.Parts) > 0 && !slices.ContainsFunc(r.Parts, func(p Part) bool {
+		return p.Kind != Electricity && p.Kind != Water && p.Kind != Bill
+	})
 }
 
 // NoReceipt is the label of a charge of the merchant named name that no receipt explains.

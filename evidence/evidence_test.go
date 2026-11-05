@@ -34,8 +34,11 @@ func TestABillsChargePaysTheBillAndTheFee(t *testing.T) {
 	if r.THB() != 817.85 || r.Amountless() {
 		t.Errorf("THB() = %v, amountless %t; want 817.85 with an amount", r.THB(), r.Amountless())
 	}
-	if invoice := (Receipt{Parts: []Part{{Ref: "tax invoice", Kind: Bill}}}); !invoice.Amountless() {
-		t.Error("a receipt whose parts have no amount isn't amountless")
+	if invoice := (Receipt{Parts: []Part{{Ref: "tax invoice", Kind: Bill}}, Unpriced: true}); !invoice.Amountless() {
+		t.Error("a receipt the merchant gave no amount for isn't amountless")
+	}
+	if free := (Receipt{Parts: []Part{{Ref: "900000000000003", Kind: Order}}}); free.Amountless() {
+		t.Error("an order netted to zero by vouchers has an amount of zero, not none")
 	}
 }
 
