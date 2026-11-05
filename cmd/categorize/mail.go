@@ -5,7 +5,13 @@ import (
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/evidence"
+	"github.com/cehbz/pocketsmith-categorizer/gmail"
 )
+
+// mailbox finds the user's messages, reading in full those skip doesn't say to leave.
+type mailbox interface {
+	Messages(ctx context.Context, query string, from, to time.Time, skip func(id string) bool) ([]gmail.Message, error)
+}
 
 // overlap is how many days before the store's read point a run reads mail again, for
 // messages that arrive late.

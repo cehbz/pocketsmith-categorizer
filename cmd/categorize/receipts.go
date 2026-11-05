@@ -8,10 +8,16 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/evidence"
+	"github.com/cehbz/pocketsmith-categorizer/fx"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
+
+// rateSource gives the THB per USD rates over a span of days.
+type rateSource interface {
+	Fetch(ctx context.Context, first, last time.Time) (fx.Table, error)
+}
 
 // receiptLayer decides the charges merchants' receipts explain and the credits refunding
 // their parts.

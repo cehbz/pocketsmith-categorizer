@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/evidence"
+	"github.com/cehbz/pocketsmith-categorizer/grab"
+	"github.com/cehbz/pocketsmith-categorizer/lazada"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
@@ -493,6 +495,25 @@ func TestSettingsCountsBigCashAsCash(t *testing.T) {
 	}
 	if _, err := c.Settings(cats); err == nil {
 		t.Error("Settings accepted an unknown trips.big.cash title")
+	}
+}
+
+func TestTheExampleConfigLoadsAndResolvesEveryMerchant(t *testing.T) {
+	c, err := Load(filepath.Join("..", "config.example.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cats := []ledger.Category{{ID: 1, Title: "Transport"}, {ID: 2, Title: "Food"}, {ID: 3, Title: "Shopping"}, {ID: 4, Title: "Utilities"}}
+	for _, m := range []evidence.Merchant{grab.Merchant(), lazada.Merchant()} {
+		if _, err := c.Merchant(m, cats); err != nil {
+			t.Errorf("Merchant(%s): %v", m.Name, err)
+		}
+	}
+}
+
+func TestEvidencePathIsUnderTheStateDirectory(t *testing.T) {
+	if got := EvidencePath("/h"); got != "/h/.local/state/pocketsmith-categorizer/evidence.json" {
+		t.Errorf("EvidencePath = %q", got)
 	}
 }
 

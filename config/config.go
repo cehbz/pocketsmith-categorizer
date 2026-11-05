@@ -447,6 +447,11 @@ func RatesPath(home string) string {
 	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "rates.json")
 }
 
+// EvidencePath is the evidence read from merchants' mail, under home.
+func EvidencePath(home string) string {
+	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "evidence.json")
+}
+
 // PlacedPath is the record of the trip placements made, under home.
 func PlacedPath(home string) string {
 	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "placed.json")

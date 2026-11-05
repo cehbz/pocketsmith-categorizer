@@ -9,13 +9,17 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/gmail"
+	"github.com/cehbz/pocketsmith-categorizer/grab"
 	"github.com/cehbz/pocketsmith-categorizer/journal"
+	"github.com/cehbz/pocketsmith-categorizer/lazada"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/memo"
 	"github.com/cehbz/pocketsmith-categorizer/rules"
@@ -114,7 +118,7 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 	start := mustParse("2026-10-01")
 	big := map[trips.Kind]ledger.CategoryID{trips.Transport: 101, trips.Lodging: 102, trips.Food: 103, trips.Discretionary: 104, trips.Cash: 105}
 	s := &session{ledger: l, titles: map[ledger.CategoryID]string{}, today: mustParse("2026-11-03"), card: c, accounts: []string{"Card"}, calendar: &fakeCalendar{},
-		receipts: &fakeMailbox{}, grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: time.UTC,
+		receipts: &fakeMailbox{}, merchants: []evidence.Merchant{testGrab()}, loc: time.UTC,
 		attention: attention.Settings{Start: start, Size: attention.Size{Absolute: 1e9, SD: 1e3}},
 		trips:     trips.Settings{Kinds: trips.Kinds{Codes: trips.DefaultCodes(), Big: big}, Home: trips.Home{Places: []string{"HOMETOWN"}}, Start: start}}
 	return s, l
@@ -127,6 +131,10 @@ func runners(t *testing.T) (func() runner, *countingTrips) {
 	store := &countingTrips{}
 	return func() runner {
 		r := runner{journal: journal.Store{Dir: filepath.Join(dir, "journal")}, trips: store, lookback: 365, history: 365}
+		var err error
+		if r.evidence, err = evidence.Load(filepath.Join(dir, "evidence.json")); err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range []struct {
 			dst  **memo.Memo
 			name string
@@ -374,7 +382,7 @@ func grabRun(t *testing.T) (*session, *fakeLedger) {
 		t.Fatal(err)
 	}
 	s.rules = rs
-	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}}
+	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{grab.Query: {ride("m1", "2026-11-01T05:00:00Z")}}}
 	s.rates = rates(t, "35")
 	return s, l
 }
@@ -386,7 +394,7 @@ func TestARunPutsAGrabChargeAReceiptMatchesInItsServicesCategoryAheadOfTheRules(
 	if err := newRunner().run(context.Background(), s, &out); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	if got := l.txs[11].State; got.Category != grabPolicy.Ride || !got.HasLabel("grab-auto") {
+	if got := l.txs[11].State; got.Category != 21 || !got.HasLabel("grab-auto") {
 		t.Errorf("Grab charge %+v; want the ride category under grab-auto\n%s", got, out.String())
 	}
 }
@@ -401,10 +409,86 @@ func TestAMailboxFailureFailsTheRunBeforeAnythingIsApplied(t *testing.T) {
 	}
 }
 
+func TestARunPutsALazadaOrdersChargeInTheOrderCategoryAndAChargeWithoutAReceiptInReview(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := lazadaRun(t)
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if got := l.txs[11].State; got.Category != 40 || !got.HasLabel("auto-lazada") {
+		t.Errorf("order's charge %+v; want the order category under auto-lazada\n%s", got, out.String())
+	}
+	if got := l.txs[12].State; !got.NeedsReview || !got.HasLabel(evidence.NoReceipt("lazada")) {
+		t.Errorf("charge without a receipt %+v; want it in review for want of a Lazada receipt\n%s", got, out.String())
+	}
+	if _, reasons, _ := strings.Cut(out.String(), "\nReview Reasons\n"); !strings.Contains(reasons, "no Lazada receipt") {
+		t.Errorf("Review Reasons lack the missing receipt\n%s", out.String())
+	}
+}
+
+// lazadaRun is tripRun explaining Grab's and Lazada's charges, with a Lazada order's
+// confirmation in the mailbox, its charge, and a Lazada charge no receipt explains, both
+// needing review.
+func lazadaRun(t *testing.T) (*session, *fakeLedger) {
+	t.Helper()
+	s, l := tripRun(t)
+	s.merchants = []evidence.Merchant{testGrab(), testLazada()}
+	s.rates = rates(t, "35")
+	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{lazada.Queries[0]: {{ID: "m1", Received: at("2026-11-01T07:06:00Z"),
+		Subject: "We have received your order No 900000000000001",
+		Text:    "Your Order #900000000000001 placed on November 1, 2026 at 14:05 via Credit or Debit Card has been confirmed. Total (VAT included) ฿460.00"}}}}
+	card := ledger.Account{Name: "Card"}
+	l.txs[11] = ledger.Transaction{ID: 11, Date: mustParse("2026-11-01"), Amount: -13.18, Payee: "LAZADA PAY", Account: card, State: ledger.State{NeedsReview: true}}
+	l.txs[12] = ledger.Transaction{ID: 12, Date: mustParse("2026-11-02"), Amount: -9, Payee: "LAZADA PAY", Account: card, State: ledger.State{NeedsReview: true}}
+	return s, l
+}
+
+func TestAChargeWithoutAReceiptTheUserReviewedIsntPutBackInReview(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := lazadaRun(t)
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !l.txs[12].State.HasLabel(evidence.NoReceipt("lazada")) {
+		t.Fatalf("first run: charge without a receipt %+v; want it in review for want of a Lazada receipt\n%s", l.txs[12].State, out.String())
+	}
+	reviewed := l.txs[12]
+	reviewed.State.NeedsReview = false // the user reviewed it and left the label
+	l.txs[12] = reviewed
+	l.updated = nil
+	out.Reset()
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if got := l.txs[12].State; got.NeedsReview || slices.Contains(l.updated, 12) {
+		t.Errorf("next run: charge %+v after updates to %v; want it left as the user reviewed it\n%s", got, l.updated, out.String())
+	}
+}
+
+func TestAnEvidenceStoreThatCantBeSavedFailsTheRunBeforeAnythingIsApplied(t *testing.T) {
+	newRunner, store := runners(t)
+	s, l := grabRun(t)
+	r := newRunner()
+	blocked := filepath.Join(t.TempDir(), "state")
+	var err error
+	if r.evidence, err = evidence.Load(filepath.Join(blocked, "evidence.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil { // a file where the store's directory goes
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := r.run(context.Background(), s, &out); !errors.Is(err, syscall.ENOTDIR) || l.updates != 0 || store.saves != 0 {
+		t.Errorf("run: %v after %d updates and %d trip list saves; want the store's error and nothing applied\n%s", err, l.updates, store.saves, out.String())
+	}
+}
+
 func TestAGrabChargeTheUserCategorizedIsOnlySuggestedTheReceiptsCategory(t *testing.T) {
 	newRunner, _ := runners(t)
 	s, l := grabRun(t)
-	s.titles = map[ledger.CategoryID]string{30: "Travel", grabPolicy.Ride: "Rides"}
+	s.titles = map[ledger.CategoryID]string{30: "Travel", 21: "Rides"}
 	charge := l.txs[11]
 	charge.State = ledger.State{Category: 30}
 	l.txs[11] = charge
@@ -463,7 +547,9 @@ func noticed(t *testing.T, newRunner func() runner, s *session, b *fakeInbox) st
 func TestAnUnreadableReceiptMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
 	newRunner, _ := runners(t)
 	s, _ := tripRun(t)
-	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {{ID: "m3", Received: at("2026-10-29T08:00:00Z"), To: "a@example.com", Text: noTotal}}}}
+	unreadable := ride("m3", "2026-10-29T08:00:00Z")
+	unreadable.Text = noTotal
+	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{grab.Query: {unreadable}}}
 	b := &fakeInbox{}
 	out := noticed(t, newRunner, s, b)
 	if len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "1 unreadable receipt") {

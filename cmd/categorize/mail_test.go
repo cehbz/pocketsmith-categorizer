@@ -52,9 +52,6 @@ func (m *fakeMailbox) Messages(_ context.Context, query string, from, to time.Ti
 
 const (
 	rideReceipt = `Grab E-Receipt | Standard | | Hope you enjoyed your ride! Booking ID: A-TESTRIDE0001 | | Total Paid | ฿70 | Grab Thailand`
-	// foodReceipt: "ทานอาหารให้อร่อย" is enjoy your meal (taan aahaan hai aroi), "รวม" total (ruam),
-	// "ใบเสร็จรับเงิน" receipt (bai set rap ngoen), "รหัสการจอง" booking code (rahat kaan jong).
-	foodReceipt = `| ทานอาหารให้อร่อย! | | รวม ฿ 350 | ใบเสร็จรับเงิน | GrabFood | รหัสการจอง A-TESTFOOD0002 | รวม | ฿ 350`
 	noTotal     = `Standard Hope you enjoyed your ride! Booking ID: A-TESTRIDE0003`
 )
 

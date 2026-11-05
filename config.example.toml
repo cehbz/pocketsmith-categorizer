@@ -5,7 +5,7 @@
 key_ref = "op://VAULT/ITEM/FIELD"
 
 # PocketSmith transaction account that carries the Grab charges.
-account_id = 0
+account_id = 1234567
 
 # Each merchant: the payees its charges carry, the first day its receipts reach your mail,
 # and a category title for each kind of part it sells.
@@ -18,6 +18,17 @@ ride = "Transport"
 food = "Food"
 mart = "Food"
 express = "Transport"
+
+[merchants.lazada]
+payees = ["WWW.2C2P.COM*LAZADA PAY"]
+start = "2026-01-01"
+stay_home = true   # its charges are never trip spending
+
+[merchants.lazada.categories]
+order = "Shopping"
+electricity = "Utilities"
+water = "Utilities"
+bill = "Utilities"
 
 # THB tip amounts; an unclaimed charge at one of them is a tip of that kind.
 [tips]

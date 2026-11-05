@@ -21,6 +21,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/gmail"
 	"github.com/cehbz/pocketsmith-categorizer/grab"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
+	"github.com/cehbz/pocketsmith-categorizer/lazada"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/plaid"
 	"github.com/cehbz/pocketsmith-categorizer/pocketsmith"
@@ -37,21 +38,19 @@ type sessionLedger interface {
 
 // session is what every command needs: the ledger, its categories and rules, and today.
 type session struct {
-	ledger     sessionLedger
-	titles     map[ledger.CategoryID]string
-	rules      rules.Rules
-	today      time.Time          // in the ledger's time zone, midnight UTC
-	attention  attention.Settings // when transactions need the user
-	trips      trips.Settings
-	card       trips.Card
-	accounts   []string // the PocketSmith accounts the card covers
-	calendar   trips.Calendar
-	receipts   mailbox             // the user's mail, for merchants' receipts
-	merchants  []evidence.Merchant // the merchants whose mail explains their charges
-	rates      rateSource          // THB per USD
-	grabPayees []string            // the payees Grab's charges carry
-	grabPolicy categorize.Policy   // the category for each Grab service and the label it adds
-	loc        *time.Location      // the ledger's time zone
+	ledger    sessionLedger
+	titles    map[ledger.CategoryID]string
+	rules     rules.Rules
+	today     time.Time          // in the ledger's time zone, midnight UTC
+	attention attention.Settings // when transactions need the user
+	trips     trips.Settings
+	card      trips.Card
+	accounts  []string // the PocketSmith accounts the card covers
+	calendar  trips.Calendar
+	receipts  mailbox             // the user's mail, for merchants' receipts
+	merchants []evidence.Merchant // the merchants whose mail explains their charges
+	rates     rateSource          // THB per USD
+	loc       *time.Location      // the ledger's time zone
 }
 
 // open loads config, reads the PocketSmith key, the Plaid secrets and the Google OAuth client,
@@ -82,9 +81,13 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	g, err := cfg.Merchant(grab.Merchant(), cats)
-	if err != nil {
-		return nil, err
+	var merchants []evidence.Merchant
+	for _, m := range []evidence.Merchant{grab.Merchant(), lazada.Merchant()} {
+		resolved, err := cfg.Merchant(m, cats)
+		if err != nil {
+			return nil, err
+		}
+		merchants = append(merchants, resolved)
 	}
 	card, err := openCard(ctx, cfg.Plaid)
 	if err != nil {
@@ -109,7 +112,7 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc), attention: set,
 		trips: tripSet, card: card, accounts: slices.Sorted(maps.Values(cfg.Plaid.Accounts)), calendar: cal,
 		receipts: mail, rates: fx.Cache{Path: config.RatesPath(home), Source: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: retry.Client(30 * time.Second)}},
-		grabPayees: g.Payees, grabPolicy: categorize.Policy{Ride: g.Categories[evidence.Ride], Delivery: g.Categories[evidence.Food], Label: g.Label}, loc: loc}, nil
+		merchants: merchants, loc: loc}, nil
 }
 
 // openCard reads the Plaid secrets and returns the card they open.

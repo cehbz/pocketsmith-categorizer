@@ -12,6 +12,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/journal"
 	"github.com/cehbz/pocketsmith-categorizer/learn"
@@ -74,13 +75,17 @@ func scheduled(ctx context.Context, home, configPath, rulesPath, journalDir stri
 			return err
 		}
 	}
+	if r.evidence, err = evidence.Load(config.EvidencePath(home)); err != nil {
+		return err
+	}
 	return r.run(ctx, s, out)
 }
 
-// runner is what a run keeps between runs: what it showed, judged and placed, its journal and
-// the trip list.
+// runner is what a run keeps between runs: what it showed, judged and placed, the evidence
+// read from mail, its journal and the trip list.
 type runner struct {
 	shown, judged, placed *memo.Memo
+	evidence              *evidence.Store
 	journal               journal.Store
 	trips                 trips.Store
 	lookback, history     int       // days back the categorizer re-decides its own work, and of history read
@@ -121,11 +126,14 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	}
 
 	start := s.today.AddDate(0, 0, -r.lookback) // the categorizer changes nothing dated before it
-	grabbed, receipts, err := readGrab(ctx, s, txs, start)
+	if err := readMail(ctx, s, r.evidence, start); err != nil {
+		return err
+	}
+	ex, err := explain(ctx, s, r.evidence.Evidence(), r.evidence.Unreadable(), txs, start)
 	if err != nil {
 		return err
 	}
-	plan := decide.Make(txs, []decide.Layer{grabbed, s.rules}, last, start)
+	plan := decide.Make(txs, []decide.Layer{ex.layer, s.rules}, last, start)
 	card, inferred, err := inferTrips(ctx, s, txs, plan, from, list)
 	if err != nil {
 		return err
@@ -137,6 +145,11 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	j := attend(txs, plan, s.attention, judged)
 	for id, rs := range pl.Reasons {
 		j.reasons[id] = append(j.reasons[id], rs...)
+	}
+	for _, id := range j.judged { // what the evidence can't explain needs the user once
+		if rs := ex.reasons[id]; len(rs) > 0 {
+			j.reasons[id] = append(j.reasons[id], rs...)
+		}
 	}
 	plan.Flag(byID, j.reasons)
 	inheritSources(plan.Flags, last)
@@ -193,7 +206,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		}
 	}
 	var newUnreadable []string
-	for _, u := range receipts.Unreadable {
+	for _, u := range ex.receipts.Unreadable {
 		if k := unreadableKey(u); !shown.Seen(k) {
 			newUnreadable = append(newUnreadable, k)
 		}
@@ -207,7 +220,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
 		TripsAdded: withEvidence(listed.Added, inferred), TripVersions: trips.Without(pl.Versions, trips.Names(listing.Added)), Hints: hints,
-		Receipts: receipts, NewHints: len(newHints), NewUnreadable: len(newUnreadable),
+		Receipts: ex.receipts, NewHints: len(newHints), NewUnreadable: len(newUnreadable),
 	})
 	if err != nil {
 		return errors.Join(applyErr, err)
