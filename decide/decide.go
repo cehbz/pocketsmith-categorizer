@@ -13,12 +13,17 @@ import (
 
 // Decision is a layer's category for a transaction.
 type Decision struct {
-	Category ledger.CategoryID
-	Label    string            // the deciding layer's label
-	Source   string            // what decided, such as a rule's key
-	Reason   categorize.Reason // why, for the run's report
-	Clears   string            // a label the decision makes untrue, dropped with it
+	Category  ledger.CategoryID
+	Label     string            // the deciding layer's label
+	Source    string            // what decided, such as a rule's key
+	Reason    categorize.Reason // why, for the run's report
+	Clears    string            // a label the decision makes untrue, dropped with it
+	Tentative bool              // the decision leaves the transaction's review as it was
 }
+
+// ApplyAll is the label by which the user asks that recategorizing a charge change the rule
+// that decided it for the rule's past charges too; a correction drops it.
+const ApplyAll = "apply-all"
 
 // Layer decides a transaction's category or abstains.
 type Layer interface {
@@ -53,7 +58,7 @@ func Make(txs []ledger.Transaction, layers []Layer, set map[int64]categorize.Cha
 	for _, t := range txs {
 		owned := t.State.Owned()
 		if rec, known := set[t.ID]; owned && known && rec.After.Category != t.State.Category && !t.State.Equal(rec.Before) {
-			after := ledger.State{Category: t.State.Category, NeedsReview: t.State.NeedsReview, Labels: t.State.UserLabels()}
+			after := ledger.State{Category: t.State.Category, NeedsReview: t.State.NeedsReview, Labels: slices.DeleteFunc(t.State.UserLabels(), func(l string) bool { return l == ApplyAll })}
 			p.Corrections = append(p.Corrections, categorize.Change{Charge: t.ID, Before: t.State, After: after})
 			continue
 		}
@@ -62,7 +67,8 @@ func Make(txs []ledger.Transaction, layers []Layer, set map[int64]categorize.Cha
 		switch {
 		case inScope && decided:
 			labels := slices.DeleteFunc(t.State.UserLabels(), func(l string) bool { return l == d.Clears })
-			after := ledger.State{Category: d.Category, NeedsReview: t.State.NeedsReview && slices.ContainsFunc(labels, ledger.IsAttentionLabel), Labels: append(labels, d.Label)}
+			review := t.State.NeedsReview && (d.Tentative || slices.ContainsFunc(labels, ledger.IsAttentionLabel))
+			after := ledger.State{Category: d.Category, NeedsReview: review, Labels: append(labels, d.Label)}
 			if !t.State.Equal(after) {
 				p.Changes = append(p.Changes, categorize.Change{Charge: t.ID, Before: t.State, After: after, Source: d.Source, Reason: d.Reason})
 			}

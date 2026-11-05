@@ -300,3 +300,29 @@ func TestAPlacedTransactionIsNoLongerUndecided(t *testing.T) {
 		t.Errorf("undecided = %+v, want only 2", p.Undecided)
 	}
 }
+
+func TestATentativeDecisionLeavesReviewAsItWas(t *testing.T) {
+	tentative := layerFunc(func(ledger.Transaction) (Decision, bool) {
+		return Decision{Category: 9, Label: "auto-rule", Source: "r9", Tentative: true}, true
+	})
+	for _, c := range []struct {
+		before ledger.State
+		want   ledger.State
+	}{
+		{ledger.State{NeedsReview: true}, ledger.State{Category: 9, NeedsReview: true, Labels: []string{"auto-rule"}}},
+		{ledger.State{Category: 3, Labels: []string{"auto-rule"}}, ledger.State{Category: 9, Labels: []string{"auto-rule"}}},
+	} {
+		p := Make([]ledger.Transaction{tx(1, "2026-02-01", c.before)}, []Layer{tentative}, nil, since)
+		if len(p.Changes) != 1 || !p.Changes[0].After.Equal(c.want) {
+			t.Errorf("before %+v: changes = %+v; want one to %+v", c.before, p.Changes, c.want)
+		}
+	}
+}
+
+func TestACorrectionDropsApplyAll(t *testing.T) {
+	s := ledger.State{Category: 5, Labels: []string{"x", "auto-rule", ApplyAll}}
+	p := Make([]ledger.Transaction{tx(1, "2026-02-01", s)}, nil, map[int64]categorize.Change{1: rec(9)}, since)
+	if len(p.Corrections) != 1 || !p.Corrections[0].After.Equal(ledger.State{Category: 5, Labels: []string{"x"}}) {
+		t.Errorf("corrections = %+v; want the user's category and label x alone", p.Corrections)
+	}
+}
