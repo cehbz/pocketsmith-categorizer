@@ -70,7 +70,7 @@ func mailbox(t *testing.T, pages [][]string, msgs map[string]map[string]any) (sr
 
 // fakeMessage is a message as the API returns it with format=full.
 func fakeMessage(id string, received time.Time, to string, payload map[string]any) map[string]any {
-	payload["headers"] = []map[string]string{{"name": "Subject", "value": "Your Grab E-Receipt"}, {"name": "To", "value": to}}
+	payload["headers"] = []map[string]string{{"name": "From", "value": "Grab <no-reply@grab.com>"}, {"name": "Subject", "value": "Your Grab E-Receipt"}, {"name": "To", "value": to}}
 	return map[string]any{"id": id, "internalDate": strconv.FormatInt(received.UnixMilli(), 10), "payload": payload}
 }
 
@@ -93,11 +93,11 @@ func TestMessagesPlainText(t *testing.T) {
 			fakePart("text/plain", base64.RawURLEncoding, "Your Grab receipt\nTotal ฿78"),
 			fakePart("text/html", base64.URLEncoding, "<p>Your Grab receipt</p>"))),
 	})
-	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to)
+	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Message{{ID: "m1", Received: received.UTC(), To: "a@example.com", Text: "Your Grab receipt\nTotal ฿78"}}
+	want := []Message{{ID: "m1", Received: received.UTC(), From: "no-reply@grab.com", To: "a@example.com", Subject: "Your Grab E-Receipt", Text: "Your Grab receipt\nTotal ฿78"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v\nwant %#v", got, want)
 	}
@@ -112,7 +112,7 @@ func TestMessagesHTMLOnly(t *testing.T) {
 		"m1": fakeMessage("m1", from, "a@example.com", fakePart("multipart/mixed", nil, "",
 			fakePart("multipart/related", nil, "", fakePart("text/html", base64.URLEncoding, html)))),
 	})
-	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to)
+	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestMessagesBlankPlainFallsBackToHTML(t *testing.T) {
 				fakePart("text/plain", base64.URLEncoding, plain),
 				fakePart("text/html", base64.URLEncoding, "<p>Total Paid</p><td>฿78</td>"))),
 		})
-		got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to)
+		got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestMessagesPaging(t *testing.T) {
 		msgs[id] = fakeMessage(id, from.Add(time.Duration(i)*time.Hour), "a@example.com", fakePart("text/plain", base64.URLEncoding, "receipt "+id))
 	}
 	srv, _ := mailbox(t, [][]string{{"m1", "m2"}, {"m3"}}, msgs)
-	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to)
+	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestAMessageTheListingRepeatsIsReadOnceAndLogged(t *testing.T) {
 	}
 	srv, _ := mailbox(t, [][]string{{"m1", "m2"}, {"m2", "m3"}}, msgs)
 	var log strings.Builder
-	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client(), Log: &log}).Messages(context.Background(), "from:x", from, to)
+	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client(), Log: &log}).Messages(context.Background(), "from:x", from, to, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,9 +180,29 @@ func TestAMessageTheListingRepeatsIsReadOnceAndLogged(t *testing.T) {
 	}
 }
 
+func TestMessagesLeavesTheMessagesSkipNames(t *testing.T) {
+	msgs := map[string]map[string]any{}
+	for i, id := range []string{"m1", "m3"} {
+		msgs[id] = fakeMessage(id, from.Add(time.Duration(i)*time.Hour), "a@example.com", fakePart("text/plain", base64.URLEncoding, "receipt "+id))
+	}
+	srv, _ := mailbox(t, [][]string{{"m1", "m2", "m3"}}, msgs) // a get of m2 fails the test
+	skip := func(id string) bool { return id == "m2" }
+	got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, skip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range got {
+		ids = append(ids, m.ID)
+	}
+	if want := []string{"m1", "m3"}; !reflect.DeepEqual(ids, want) {
+		t.Errorf("got %v; want %v", ids, want)
+	}
+}
+
 func TestMessagesQuery(t *testing.T) {
 	srv, queries := mailbox(t, [][]string{nil}, nil)
-	if _, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to); err != nil {
+	if _, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := "from:x after:" + strconv.FormatInt(from.Unix(), 10) + " before:" + strconv.FormatInt(to.AddDate(0, 0, 1).Unix(), 10)
@@ -197,7 +217,7 @@ func TestMessagesAPIError(t *testing.T) {
 		w.Write([]byte(`{"error":{"message":"backend"}}`))
 	}))
 	defer srv.Close()
-	_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to)
+	_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil)
 	if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "backend") ||
 		strings.Contains(err.Error(), srv.URL) || strings.Contains(err.Error(), "/users/me") {
 		t.Errorf("err = %v; want the status and the API's message without the request", err)
@@ -222,7 +242,7 @@ func TestMessagesAuth(t *testing.T) {
 				w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
-			_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to)
+			_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil)
 			if tc.auth {
 				if !errors.Is(err, ErrAuth) {
 					t.Errorf("err = %v; want ErrAuth", err)
@@ -233,5 +253,64 @@ func TestMessagesAuth(t *testing.T) {
 				t.Errorf("err = %v; want the API's message, not ErrAuth", err)
 			}
 		})
+	}
+}
+
+// limited is a fake Gmail API refusing its first n requests with a 403 whose body is body,
+// then listing no messages; it counts the requests.
+func limited(t *testing.T, n int, body string) (*httptest.Server, *int) {
+	t.Helper()
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests <= n {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(body))
+			return
+		}
+		w.Write([]byte(`{"resultSizeEstimate":0}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &requests
+}
+
+// sleeps records the waits a client asks for, without waiting.
+func sleeps(waits *[]time.Duration) func(context.Context, time.Duration) error {
+	return func(_ context.Context, d time.Duration) error {
+		*waits = append(*waits, d)
+		return nil
+	}
+}
+
+func TestARateLimitedReadWaitsOutTheMinuteAndTriesAgain(t *testing.T) {
+	for name, body := range map[string]string{
+		"user rate": `{"error":{"code":403,"message":"User-rate limit exceeded.","errors":[{"reason":"userRateLimitExceeded"}]}}`,
+		"rate":      `{"error":{"code":403,"message":"Rate Limit Exceeded","details":[{"reason":"rateLimitExceeded"}]}}`,
+		"quota":     `{"error":{"code":403,"message":"Quota exceeded for quota metric 'Queries' and limit 'Queries per minute per user'"}}`,
+	} {
+		srv, requests := limited(t, 2, body)
+		var waits []time.Duration
+		_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client(), Sleep: sleeps(&waits)}).Messages(context.Background(), "from:x", from, to, nil)
+		if err != nil || *requests != 3 || !reflect.DeepEqual(waits, []time.Duration{65 * time.Second, 65 * time.Second}) {
+			t.Errorf("%s: err %v after %d requests and waits %v; want success on the third after two 65s waits", name, err, *requests, waits)
+		}
+	}
+}
+
+func TestARateLimitThatOutlastsFiveRetriesFailsTheRead(t *testing.T) {
+	srv, requests := limited(t, 100, `{"error":{"code":403,"message":"Rate Limit Exceeded","errors":[{"reason":"rateLimitExceeded"}]}}`)
+	var waits []time.Duration
+	_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client(), Sleep: sleeps(&waits)}).Messages(context.Background(), "from:x", from, to, nil)
+	if err == nil || !strings.Contains(err.Error(), "Rate Limit Exceeded") || *requests != 6 || len(waits) != 5 {
+		t.Errorf("err %v after %d requests and %d waits; want the 403 after 6 requests and 5 waits", err, *requests, len(waits))
+	}
+}
+
+func TestAnotherForbiddenReadFailsAtOnce(t *testing.T) {
+	srv, requests := limited(t, 100, `{"error":{"message":"Gmail API has not been used in project 1 before or it is disabled."}}`)
+	var waits []time.Duration
+	_, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client(), Sleep: sleeps(&waits)}).Messages(context.Background(), "from:x", from, to, nil)
+	if err == nil || *requests != 1 || len(waits) != 0 {
+		t.Errorf("err %v after %d requests and %d waits; want a failure on the first, without waiting", err, *requests, len(waits))
 	}
 }

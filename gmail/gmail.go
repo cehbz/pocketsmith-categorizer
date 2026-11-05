@@ -45,18 +45,31 @@ var ErrAuth = errors.New("gmail: no usable token: run categorize auth")
 
 const pageSize = 500
 
+// Gmail's per-user quota is per minute: a read it refuses waits out the minute and tries
+// again, this many times.
+const (
+	rateWait    = 65 * time.Second
+	rateRetries = 5
+)
+
+// errRateLimited is a 403 refusing a request for Gmail's per-user rate or quota.
+var errRateLimited = errors.New("rate limited")
+
 // Client reads the user's messages through an HTTP client that authorizes its requests.
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
-	Log     io.Writer // where a message the listing repeats is noted; nil discards
+	Log     io.Writer                                        // where a message the listing repeats is noted; nil discards
+	Sleep   func(ctx context.Context, d time.Duration) error // waits out a rate limit; nil waits on a timer
 }
 
-// Message is one message's arrival, recipient and text.
+// Message is one message's arrival, sender, recipient, subject and text.
 type Message struct {
 	ID       string
 	Received time.Time
+	From     string // the bare address
 	To       string // the bare address
+	Subject  string
 	Text     string
 }
 
@@ -79,8 +92,9 @@ type part struct {
 }
 
 // Messages reads the messages query finds that arrived from from to the end of to's day, a
-// page of ids at a time, each message once and in full.
-func (c *Client) Messages(ctx context.Context, query string, from, to time.Time) ([]Message, error) {
+// page of ids at a time, each message once and in full, but for those skip says to leave;
+// a nil skip leaves none.
+func (c *Client) Messages(ctx context.Context, query string, from, to time.Time, skip func(id string) bool) ([]Message, error) {
 	q := url.Values{
 		"q":          {fmt.Sprintf("%s after:%d before:%d", query, from.Unix(), to.AddDate(0, 0, 1).Unix())},
 		"maxResults": {strconv.Itoa(pageSize)},
@@ -105,6 +119,9 @@ func (c *Client) Messages(ctx context.Context, query string, from, to time.Time)
 				continue
 			}
 			seen[ref.ID] = true
+			if skip != nil && skip(ref.ID) {
+				continue
+			}
 			var m message
 			if err := c.get(ctx, "/users/me/messages/"+url.PathEscape(ref.ID), url.Values{"format": {"full"}}, &m); err != nil {
 				return nil, err
@@ -122,13 +139,37 @@ func (c *Client) Messages(ctx context.Context, query string, from, to time.Time)
 	}
 }
 
-// get reads the API's response at path into out.
+// get reads the API's response at path into out. A read refused for the rate limit waits
+// rateWait and tries again, up to rateRetries times.
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path+"?"+q.Encode(), nil)
-	if err != nil {
-		return err
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path+"?"+q.Encode(), nil)
+		if err != nil {
+			return err
+		}
+		err = c.do(req, out)
+		if !errors.Is(err, errRateLimited) || attempt == rateRetries {
+			return err
+		}
+		if err := c.sleep(ctx, rateWait); err != nil {
+			return err
+		}
 	}
-	return c.do(req, out)
+}
+
+// sleep waits d, or until ctx is done.
+func (c *Client) sleep(ctx context.Context, d time.Duration) error {
+	if c.Sleep != nil {
+		return c.Sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Insert puts n in the inbox, unread, from and to the mailbox's own address, without sending
@@ -226,6 +267,9 @@ func (c *Client) do(req *http.Request, out any) error {
 					return ErrAuth
 				}
 			}
+			if rateLimited(e.Error.Message, e.Error.Details, e.Error.Errors) {
+				return fmt.Errorf("gmail: %s: %s: %w", resp.Status, e.Error.Message, errRateLimited)
+			}
 		}
 		return fmt.Errorf("gmail: %s: %s", resp.Status, e.Error.Message)
 	}
@@ -238,22 +282,46 @@ func (c *Client) do(req *http.Request, out any) error {
 	return nil
 }
 
-// read is m's arrival in UTC, its To address and its text.
+// rateLimited reports whether a 403's message or reasons name Gmail's rate limit or quota.
+func rateLimited(message string, reasons ...[]struct {
+	Reason string `json:"reason"`
+}) bool {
+	if strings.Contains(message, "Quota exceeded") {
+		return true
+	}
+	for _, rs := range reasons {
+		for _, r := range rs {
+			if r.Reason == "rateLimitExceeded" || r.Reason == "userRateLimitExceeded" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// read is m's arrival in UTC, its From and To addresses, its subject and its text.
 func (m message) read() (Message, error) {
 	text, err := m.Payload.text()
 	if err != nil {
 		return Message{}, err
 	}
-	return Message{ID: m.ID, Received: time.UnixMilli(m.InternalDate).UTC(), To: m.Payload.to(), Text: text}, nil
+	return Message{ID: m.ID, Received: time.UnixMilli(m.InternalDate).UTC(), From: m.Payload.address("From"), To: m.Payload.address("To"),
+		Subject: m.Payload.header("Subject"), Text: text}, nil
 }
 
-// to is the address in p's To header without its display name, else the header as it is.
-func (p part) to() string {
+// address is the address in p's header name without its display name, else the header as it is.
+func (p part) address(name string) string {
+	v := p.header(name)
+	if a, err := mail.ParseAddress(v); err == nil {
+		return a.Address
+	}
+	return v
+}
+
+// header is the value of p's header name, empty when it has none.
+func (p part) header(name string) string {
 	for _, h := range p.Headers {
-		if strings.EqualFold(h.Name, "To") {
-			if a, err := mail.ParseAddress(h.Value); err == nil {
-				return a.Address
-			}
+		if strings.EqualFold(h.Name, name) {
 			return h.Value
 		}
 	}

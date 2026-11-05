@@ -16,7 +16,7 @@ import (
 
 // mailbox finds the user's messages.
 type mailbox interface {
-	Messages(ctx context.Context, query string, from, to time.Time) ([]gmail.Message, error)
+	Messages(ctx context.Context, query string, from, to time.Time, skip func(id string) bool) ([]gmail.Message, error)
 }
 
 // rateSource gives the THB per USD rates over a span of days.
@@ -41,7 +41,7 @@ func (g grabLayer) Decide(t ledger.Transaction) (decide.Decision, bool) {
 // readGrab reads the Grab receipts that arrived from from to today and returns the layer
 // deciding the charges among txs they match, and the receipts it couldn't read or match.
 func readGrab(ctx context.Context, s *session, txs []ledger.Transaction, from time.Time) (grabLayer, report.Receipts, error) {
-	msgs, err := s.receipts.Messages(ctx, receiptQuery, from, s.today)
+	msgs, err := s.receipts.Messages(ctx, receiptQuery, from, s.today, nil)
 	if err != nil {
 		return grabLayer{}, report.Receipts{}, err
 	}

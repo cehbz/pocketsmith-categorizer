@@ -374,7 +374,7 @@ func grabRun(t *testing.T) (*session, *fakeLedger) {
 		t.Fatal(err)
 	}
 	s.rules = rs
-	s.receipts = &fakeMailbox{messages: []gmail.Message{{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}
+	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}}
 	s.rates = rates(t, "35")
 	return s, l
 }
@@ -463,7 +463,7 @@ func noticed(t *testing.T, newRunner func() runner, s *session, b *fakeInbox) st
 func TestAnUnreadableReceiptMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
 	newRunner, _ := runners(t)
 	s, _ := tripRun(t)
-	s.receipts = &fakeMailbox{messages: []gmail.Message{{ID: "m3", Received: at("2026-10-29T08:00:00Z"), To: "a@example.com", Text: noTotal}}}
+	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {{ID: "m3", Received: at("2026-10-29T08:00:00Z"), To: "a@example.com", Text: noTotal}}}}
 	b := &fakeInbox{}
 	out := noticed(t, newRunner, s, b)
 	if len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "1 unreadable receipt") {

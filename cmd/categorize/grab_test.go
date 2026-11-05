@@ -19,17 +19,35 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
 
-// fakeMailbox is a mailbox that records the query and window it was asked for.
+// fakeMailbox is a mailbox holding the messages each query finds. It records each search
+// and the ids it read in full, and fails every search with err when it isn't nil.
 type fakeMailbox struct {
-	messages []gmail.Message
+	messages map[string][]gmail.Message // by query
 	err      error
+	searches []search
+	read     []string
+}
+
+// search is one query over a window of days.
+type search struct {
 	query    string
 	from, to time.Time
 }
 
-func (m *fakeMailbox) Messages(_ context.Context, query string, from, to time.Time) ([]gmail.Message, error) {
-	m.query, m.from, m.to = query, from, to
-	return m.messages, m.err
+func (m *fakeMailbox) Messages(_ context.Context, query string, from, to time.Time, skip func(id string) bool) ([]gmail.Message, error) {
+	m.searches = append(m.searches, search{query, from, to})
+	if m.err != nil {
+		return nil, m.err
+	}
+	var out []gmail.Message
+	for _, msg := range m.messages[query] {
+		if skip != nil && skip(msg.ID) {
+			continue
+		}
+		m.read = append(m.read, msg.ID)
+		out = append(out, msg)
+	}
+	return out, nil
 }
 
 // fakeRates is a rate source at a fixed THB per USD that counts its fetches.
@@ -70,11 +88,11 @@ func at(s string) time.Time {
 }
 
 func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) {
-	box := &fakeMailbox{messages: []gmail.Message{
+	box := &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {
 		{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt},
 		{ID: "m2", Received: at("2026-10-30T12:00:00Z"), To: "a@example.com", Text: foodReceipt},
 		{ID: "m3", Received: at("2026-10-29T08:00:00Z"), To: "a@example.com", Text: noTotal},
-	}}
+	}}}
 	src := rates(t, "35")
 	s := &session{today: mustParse("2026-11-03"), receipts: box, rates: src, grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: time.UTC}
 	card := ledger.Account{Name: "Card"}
@@ -87,8 +105,8 @@ func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if box.query != receiptQuery || !box.from.Equal(from) || !box.to.Equal(s.today) {
-		t.Errorf("mailbox asked %q %v..%v; want %q %v..%v", box.query, box.from, box.to, receiptQuery, from, s.today)
+	if want := []search{{receiptQuery, from, s.today}}; !reflect.DeepEqual(box.searches, want) {
+		t.Errorf("mailbox searches %v; want %v", box.searches, want)
 	}
 	for _, c := range []struct {
 		tx   ledger.Transaction
@@ -113,7 +131,7 @@ func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) 
 }
 
 func TestAReceiptNoChargeMatchesIsReported(t *testing.T) {
-	box := &fakeMailbox{messages: []gmail.Message{{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}
+	box := &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}}
 	s := &session{today: mustParse("2026-11-03"), receipts: box, rates: rates(t, "35"), grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: time.UTC}
 	_, receipts, err := readGrab(context.Background(), s, nil, mustParse("2026-10-01"))
 	if err != nil {
@@ -129,10 +147,10 @@ func TestReceiptsAreReportedInTheLedgersTimeZone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	box := &fakeMailbox{messages: []gmail.Message{
+	box := &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {
 		{ID: "m1", Received: at("2026-11-01T20:00:00Z"), To: "a@example.com", Text: rideReceipt},
 		{ID: "m2", Received: at("2026-11-01T20:00:00Z"), To: "a@example.com", Text: noTotal},
-	}}
+	}}}
 	s := &session{today: mustParse("2026-11-03"), receipts: box, rates: rates(t, "35"), grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: bangkok}
 	_, receipts, err := readGrab(context.Background(), s, nil, mustParse("2026-10-01"))
 	if err != nil {
@@ -168,7 +186,7 @@ func TestReceiptsMatchedOnKeptRatesSaySo(t *testing.T) {
 		http.Error(w, "origin down", http.StatusBadGateway)
 	}))
 	defer down.Close()
-	box := &fakeMailbox{messages: []gmail.Message{{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}
+	box := &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {{ID: "m1", Received: at("2026-11-01T05:00:00Z"), To: "a@example.com", Text: rideReceipt}}}}
 	s := &session{today: mustParse("2026-11-03"), receipts: box, rates: fx.Cache{Path: path, Source: fx.Frankfurter{BaseURL: down.URL, HTTP: down.Client()}}, grabPayees: []string{"GRAB"}, grabPolicy: grabPolicy, loc: time.UTC}
 	tx := ledger.Transaction{ID: 1, Date: mustParse("2026-11-02"), Amount: -2, Payee: "GRAB"}
 	layer, receipts, err := readGrab(context.Background(), s, []ledger.Transaction{tx}, mustParse("2026-10-01"))
