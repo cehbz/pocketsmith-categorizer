@@ -119,6 +119,25 @@ func TestTwoSmallChargesAFewCentsApartMatchTheirReceiptsTogether(t *testing.T) {
 	}
 }
 
+func TestEqualChargesAndReceiptsPairTheSameWayInAnyOrder(t *testing.T) {
+	// Two charges of 2.87 on one day and one 100 THB receipt: either charge could take it.
+	a, b := charge(7, "2026-03-04", 2.87), charge(3, "2026-03-04", 2.87)
+	for _, txs := range [][]ledger.Transaction{{a, b}, {b, a}} {
+		m := match(t, lazada, Evidence{Receipts: []Receipt{order("2026-03-04", "900000000000001", 100)}}, txs...)
+		if want := map[int64]string{3: "900000000000001"}; !reflect.DeepEqual(paid(m), want) {
+			t.Errorf("charges %v: paid %v; want %v", ids(txs), paid(m), want)
+		}
+	}
+	// Two 100 THB receipts on one day and one charge: either receipt could pay it.
+	r1, r2 := order("2026-03-04", "900000000000002", 100), order("2026-03-04", "900000000000001", 100)
+	for _, rs := range [][]Receipt{{r1, r2}, {r2, r1}} {
+		m := match(t, lazada, Evidence{Receipts: rs}, a)
+		if want := map[int64]string{7: "900000000000001"}; !reflect.DeepEqual(paid(m), want) {
+			t.Errorf("receipts %s, %s: paid %v; want %v", rs[0].Ref(), rs[1].Ref(), paid(m), want)
+		}
+	}
+}
+
 func TestAChargeAtTheRateOfTheDayBeforeOrAfterIsPaid(t *testing.T) {
 	byDay := map[string]float64{"2026-03-03": 35, "2026-03-04": 36, "2026-03-05": 37}
 	rates := func(d time.Time) (float64, error) { return byDay[day.Format(d)], nil }

@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"cmp"
 	"math"
 	"slices"
 	"time"
@@ -84,6 +85,14 @@ func (m Merchant) Match(ev Evidence, txs []ledger.Transaction, rates Rates, loc 
 		}
 	}
 	receipts = Checkouts(receipts)
+	// Equal pairings tie; in a fixed order they resolve the same way every run, whatever order
+	// the ledger lists the charges in.
+	byDate := func(a, b ledger.Transaction) int {
+		return cmp.Or(a.Date.Compare(b.Date), cmp.Compare(a.ID, b.ID))
+	}
+	slices.SortFunc(charges, byDate)
+	slices.SortFunc(credits, byDate)
+	slices.SortFunc(receipts, func(a, b Receipt) int { return cmp.Or(a.At.Compare(b.At), cmp.Compare(a.Ref(), b.Ref())) })
 	var out Matching
 	if err := m.charges(receipts, charges, rates, loc, &out); err != nil {
 		return Matching{}, err
