@@ -138,6 +138,24 @@ func TestMessagesBlankPlainFallsBackToHTML(t *testing.T) {
 	}
 }
 
+func TestMessagesPlainPartHoldingHTMLReadsAsHTML(t *testing.T) {
+	for _, doc := range []string{
+		`<html xmlns="http://www.w3.org/1999/xhtml"><head><style>x{}</style></head><body><b>Total Paid</b></td><td><b>฿78</b></body></html>`,
+		" \r\n<!DOCTYPE html><HTML><body><p>Total Paid</p><td>฿78</td></body></HTML>",
+	} {
+		srv, _ := mailbox(t, [][]string{{"m1"}}, map[string]map[string]any{
+			"m1": fakeMessage("m1", from, "a@example.com", fakePart("text/plain", base64.URLEncoding, doc)),
+		})
+		got, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Messages(context.Background(), "from:x", from, to, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Text != "Total Paid ฿78" {
+			t.Errorf("plain %q: got %#v; want one message with Text %q", doc, got, "Total Paid ฿78")
+		}
+	}
+}
+
 func TestMessagesPaging(t *testing.T) {
 	msgs := map[string]map[string]any{}
 	for i, id := range []string{"m1", "m2", "m3"} {

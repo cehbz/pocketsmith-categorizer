@@ -328,13 +328,19 @@ func (p part) header(name string) string {
 	return ""
 }
 
-// text is the body of p's first text/plain part, else, when there is none or its body is
-// blank, the text of its first text/html part.
+// text is the body of p's first text/plain part, read as HTML when it is an HTML document,
+// else, when there is none or its body is blank, the text of its first text/html part.
 func (p part) text() (string, error) {
 	if plain := p.first("text/plain"); plain != nil {
 		body, err := plain.decode()
-		if err != nil || strings.TrimSpace(body) != "" {
-			return body, err
+		if err != nil {
+			return "", err
+		}
+		if doc := strings.ToLower(strings.TrimSpace(body)); strings.HasPrefix(doc, "<html") || strings.HasPrefix(doc, "<!doctype html") {
+			return htmlText(body), nil
+		}
+		if strings.TrimSpace(body) != "" {
+			return body, nil
 		}
 	}
 	if h := p.first("text/html"); h != nil {
