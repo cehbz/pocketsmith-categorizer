@@ -215,7 +215,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		RunID: runID, At: started, Changes: plan.Changes, Applied: decisions,
 		Corrections: corrections, Amendments: amendments,
 		Undecided: plan.Undecided, Suggestions: suggestions,
-		Proposals: proposals, Threshold: threshold, ThresholdFound: found, Trials: trials,
+		RulesAdded: proposals, Threshold: threshold, ThresholdFound: found, Trials: trials,
 		Titles: s.titles, Transactions: byID,
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,

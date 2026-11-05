@@ -6,7 +6,6 @@ import (
 	"io"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -36,7 +35,8 @@ type Run struct {
 	Amendments     []categorize.Change // corrections of a layer's decision: Source is what decided, Before its category, After the user's
 	Undecided      []ledger.Transaction
 	Suggestions    []decide.Suggestion
-	Proposals      []learn.Proposal
+	RulesAdded     []learn.Proposal  // rules the run added to the rules file
+	RulesAmended   []rules.Amendment // rules the user's overrides changed
 	Threshold      int
 	ThresholdFound bool
 	Trials         []learn.Trial
@@ -96,7 +96,7 @@ func (r Run) layout() doc {
 		d.notes = append(d.notes, fmt.Sprintf("Receipts matched on stale rates: %v", r.Receipts.StaleRates))
 	}
 	byRule, onTrips := r.amendments()
-	d.add("Needs You", true, r.proposals(), r.ruleAmendments(byRule), r.suggestions(),
+	d.add("Needs You", true, r.newRules(), r.overridden(byRule), r.suggestions(),
 		r.tripsAdded(), r.tripHints(), r.tripVersions(), r.unreadable(), r.notApplied(), r.undecided(), r.reviewReasons())
 	d.add("Applied", false, r.applied()...)
 	d.add("Reference", false, r.tripCorrections(onTrips), r.corrections(), r.income(), r.unmatched())
@@ -139,29 +139,34 @@ func (r Run) charge(id int64) []string {
 // span is a trip's dates.
 func (r Run) span(from, to time.Time) string { return r.date(from) + " – " + r.date(to) }
 
-// proposals are the rules the backtest proposes, each with the TOML to paste.
-func (r Run) proposals() section {
-	s := section{title: "Proposed Rules"}
-	if !r.ThresholdFound {
-		return s
-	}
+// newRules are the rules the run added to the rules file and those the user's overrides
+// amended, with how to amend a rule for all its charges when it lists an amendment.
+func (r Run) newRules() section {
+	s := section{title: "New Rules to Review"}
 	var tr learn.Trial
 	for _, t := range r.Trials {
 		if t.Min == r.Threshold {
 			tr = t
 		}
 	}
-	for _, p := range r.Proposals {
-		category := r.title(p.Category)
-		s.parts = append(s.parts,
-			part{line: fmt.Sprintf("%s → %s · %s · backtest %d/%d", p.Key, category, plural(p.Count, "categorization", "categorizations"), tr.Correct, tr.Evaluated)},
-			part{code: []string{"[[rule]]", "payee = " + literal(p.Pattern), "category = " + strconv.Quote(category)}})
+	for _, p := range r.RulesAdded {
+		s.parts = append(s.parts, part{line: fmt.Sprintf("Added %s → %s · %s · backtest %d/%d", p.Key, r.title(p.Category), plural(p.Count, "categorization", "categorizations"), tr.Correct, tr.Evaluated)})
+	}
+	for _, a := range r.RulesAmended {
+		scope := "for all charges"
+		if !a.Now.From.IsZero() {
+			scope = "from " + r.date(a.Now.From)
+		}
+		s.parts = append(s.parts, part{line: fmt.Sprintf("Amended %s: %s → %s %s · %s", a.Now.Name(), a.Was.Category, a.Now.Category, scope, strings.Join(r.charge(a.Charge.ID), " "))})
+	}
+	if len(r.RulesAmended) > 0 {
+		s.parts = append(s.parts, part{line: "A rule you amend by changing a charge's category changes from that charge's date on; add the label apply-all to the charge as well to change it for all its charges."})
 	}
 	return s
 }
 
-// ruleAmendments are the user's corrections of a rule's decision, or another home layer's.
-func (r Run) ruleAmendments(amendments []categorize.Change) section {
+// overridden are the user's corrections of a decision a layer other than the rules and trips made.
+func (r Run) overridden(amendments []categorize.Change) section {
 	t := table{cols: cols([]string{"Date", "Payee", "Amount", "By", "Decided", "You chose"}, "Amount")}
 	for _, a := range amendments {
 		rule, ok := rules.KeyName(a.Source)
@@ -170,7 +175,7 @@ func (r Run) ruleAmendments(amendments []categorize.Change) section {
 		}
 		t.rows = append(t.rows, append(r.charge(a.Charge), rule, r.title(a.Before.Category), r.title(a.After.Category)))
 	}
-	return tabled("Rule Amendments", t)
+	return tabled("Overridden Decisions", t)
 }
 
 // suggestions are the user's transactions a layer would categorize differently.

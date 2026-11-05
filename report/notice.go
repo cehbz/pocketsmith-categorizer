@@ -15,8 +15,9 @@ func Notice(r Run) (subject string, due bool) {
 		}
 	}
 	byRule, _ := r.amendments()
-	count(len(r.Proposals), "rule to approve", "rules to approve")
-	count(len(byRule), "rule amendment", "rule amendments")
+	count(len(r.RulesAdded), "rule added", "rules added")
+	count(len(r.RulesAmended), "rule amended", "rules amended")
+	count(len(byRule), "overridden decision", "overridden decisions")
 	count(len(r.Suggestions), "suggestion", "suggestions")
 	count(len(r.TripsAdded), "trip added", "trips added")
 	count(r.NewHints, "trip hint", "trip hints")

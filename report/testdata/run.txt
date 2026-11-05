@@ -3,13 +3,12 @@ Receipts matched on stale rates: rates kept through 2026-11-03: fx: 503
 
 NEEDS YOU
 
-Proposed Rules
-  TEA HOUSE → Eating Out · 3 categorizations · backtest 48/50
-    [[rule]]
-    payee = '(?i)\bTEA[^A-Za-z]*HOUSE\b'
-    category = "Eating Out"
+New Rules to Review
+  Added TEA HOUSE → Eating Out · 3 categorizations · backtest 48/50
+  Amended BOOK NOOK: Discretionary → Books from Mar 1 · Sep 14 BOOK NOOK −18.00
+  A rule you amend by changing a charge's category changes from that charge's date on; add the label apply-all to the charge as well to change it for all its charges.
 
-Rule Amendments
+Overridden Decisions
   Date    Payee      Amount  By         Decided        You chose
   Sep 14  BOOK NOOK  −18.00  BOOK NOOK  Discretionary  Groceries
 

@@ -94,14 +94,6 @@ func tripName(name string) string {
 	return strings.Join(words, " ") + " trip"
 }
 
-// literal is s as a TOML string: a literal string, quoted when s can't be one.
-func literal(s string) string {
-	if strings.ContainsAny(s, "'\n") {
-		return strconv.Quote(s)
-	}
-	return "'" + s + "'"
-}
-
 // plural is n of a thing, named one or many.
 func plural(n int, one, many string) string {
 	if n == 1 {

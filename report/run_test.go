@@ -246,19 +246,54 @@ func TestTripCorrectionsAreReferenceListedOnce(t *testing.T) {
 	}
 }
 
-func TestARuleAmendmentNeedsTheUser(t *testing.T) {
-	rule := rules.Rule{Payee: "(?i)^atm", Category: "Food"}
+func TestNewRulesNeedTheUser(t *testing.T) {
+	from, _ := day.Parse("2026-02-01")
 	r := Run{
-		Amendments:   []categorize.Change{{Charge: 2, Before: ledger.State{Category: 5}, After: ledger.State{Category: 9}, Source: rule.Key()}},
-		Transactions: map[int64]ledger.Transaction{2: rtx(2, "ATM", 9)},
+		RulesAdded:     []learn.Proposal{{Key: "TEA HOUSE", Category: 5, Count: 3, Pattern: learn.Pattern("TEA HOUSE")}},
+		Threshold:      3,
+		ThresholdFound: true,
+		Trials:         []learn.Trial{{Min: 3, Evaluated: 40, Correct: 39}},
+		RulesAmended: []rules.Amendment{
+			{Was: rules.Rule{Payee: "(?i)^atm", Category: "Food"}, Now: rules.Rule{Payee: "(?i)^atm", Category: "Cash", State: rules.Tentative, From: from}, Charge: rtx(2, "ATM", 9)},
+			{Was: rules.Rule{Payee: "(?i)^shop", Category: "Food"}, Now: rules.Rule{Payee: "(?i)^shop", Category: "Phone", State: rules.Tentative}, Charge: rtx(3, "SHOP", 3)},
+		},
+		Transactions: map[int64]ledger.Transaction{2: rtx(2, "ATM", 9), 3: rtx(3, "SHOP", 3)},
 	}
 	out := write(t, r)
-	b, ok := body(out, "Rule Amendments")
-	if !ok || !strings.Contains(b, "Feb 1 ATM −12.50 ^atm Food Cash") {
-		t.Errorf("want rule ^atm's Food amended to Cash:\n%s", out)
+	b, ok := body(out, "New Rules to Review")
+	for _, want := range []string{
+		"Added TEA HOUSE → Food · 3 categorizations · backtest 39/40",
+		"Amended ^atm: Food → Cash from Feb 1 · Feb 1 ATM −12.50",
+		"Amended ^shop: Food → Phone for all charges · Feb 1 SHOP −12.50",
+		"add the label apply-all",
+	} {
+		if !ok || !strings.Contains(b, want) {
+			t.Errorf("want %q under New Rules to Review:\n%s", want, out)
+		}
 	}
-	if subject, due := Notice(r); !due || subject != "Categorizer: 1 rule amendment" {
-		t.Errorf("Notice = %q, %v; want Categorizer: 1 rule amendment", subject, due)
+	if subject, due := Notice(r); !due || subject != "Categorizer: 1 rule added · 2 rules amended" {
+		t.Errorf("Notice = %q, %v", subject, due)
+	}
+}
+
+func TestAddedRulesAloneNeedNoApplyAllReminder(t *testing.T) {
+	out := write(t, Run{RulesAdded: []learn.Proposal{{Key: "TEA HOUSE", Category: 5, Count: 3}}, Threshold: 3, ThresholdFound: true})
+	if strings.Contains(out, "apply-all") {
+		t.Errorf("an apply-all reminder without an amendment:\n%s", out)
+	}
+}
+
+func TestAnOverriddenDecisionOfAnotherLayerNeedsTheUser(t *testing.T) {
+	r := Run{
+		Amendments:   []categorize.Change{{Charge: 2, Before: ledger.State{Category: 5}, After: ledger.State{Category: 9}, Source: "lazada 900000000000011"}},
+		Transactions: map[int64]ledger.Transaction{2: rtx(2, "LAZADA", 9)},
+	}
+	out := write(t, r)
+	if b, ok := body(out, "Overridden Decisions"); !ok || !strings.Contains(b, "Feb 1 LAZADA −12.50 lazada 900000000000011 Food Cash") {
+		t.Errorf("want lazada's Food overridden to Cash:\n%s", out)
+	}
+	if subject, due := Notice(r); !due || subject != "Categorizer: 1 overridden decision" {
+		t.Errorf("Notice = %q, %v", subject, due)
 	}
 }
 
@@ -369,9 +404,10 @@ func fixtureRun() Run {
 			{Charge: 114, Before: ledger.State{Category: 4}, After: ledger.State{Category: 1}, Source: rules.Rule{Payee: "(?i)BOOK NOOK", Category: "Discretionary"}.Key()},
 			{Charge: 115, Before: ledger.State{Category: 6}, After: ledger.State{Category: 7}, Source: "trips: " + seaside},
 		},
+		RulesAmended:   []rules.Amendment{{Was: rules.Rule{Payee: "(?i)BOOK NOOK", Category: "Discretionary"}, Now: rules.Rule{Payee: "(?i)BOOK NOOK", Category: "Books", State: rules.Tentative, From: on("2026-03-01")}, Charge: txs[114]}},
 		Undecided:      []ledger.Transaction{undecided},
 		Suggestions:    []decide.Suggestion{{Transaction: suggested, Decision: decide.Decision{Category: 4, Reason: categorize.Reason{Why: categorize.ByRule, Rule: "CORNER BOOKS"}}}},
-		Proposals:      []learn.Proposal{{Key: "TEA HOUSE", Category: 2, Count: 3, Pattern: learn.Pattern("TEA HOUSE")}},
+		RulesAdded:     []learn.Proposal{{Key: "TEA HOUSE", Category: 2, Count: 3, Pattern: learn.Pattern("TEA HOUSE")}},
 		Threshold:      3,
 		ThresholdFound: true,
 		Trials:         []learn.Trial{{Min: 2, Evaluated: 60, Correct: 50}, {Min: 3, Evaluated: 50, Correct: 48}},
