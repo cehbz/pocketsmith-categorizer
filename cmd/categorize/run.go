@@ -19,6 +19,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/memo"
 	"github.com/cehbz/pocketsmith-categorizer/report"
+	"github.com/cehbz/pocketsmith-categorizer/rules"
 	"github.com/cehbz/pocketsmith-categorizer/tripfile"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
@@ -92,8 +93,8 @@ type runner struct {
 	notify                *notifier // with notices on, delivers the report
 }
 
-// run decides, places, flags and applies a run's changes, lists the trips it changed, and
-// reports.
+// run revises the rules file, decides, places, flags and applies a run's changes, lists the
+// trips it changed, and reports.
 func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	started := time.Now()
 	shown, judged, placed, store, tripStore := r.shown, r.judged, r.placed, r.journal, r.trips
@@ -133,6 +134,18 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	revision := s.rules.Review(txs, last, s.titles)
+	trials := learn.Backtest(txs, s.today.AddDate(0, 0, -backtestDays), maxEvidence)
+	threshold, found := learn.Threshold(trials, precision, minEvaluated)
+	var proposals []learn.Proposal
+	if found {
+		proposals = learn.Propose(txs, threshold, s.rules.Covers)
+	}
+	if len(revision.Edits) > 0 || len(proposals) > 0 {
+		if s.rules, err = s.rulesFile.Revise(revision.Edits, additions(proposals, s.titles, s.today)); err != nil {
+			return err
+		}
+	}
 	plan := decide.Make(txs, []decide.Layer{ex.layer, s.rules}, last, start)
 	card, inferred, err := inferTrips(ctx, s, txs, plan, from, list)
 	if err != nil {
@@ -158,17 +171,6 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	for _, sg := range plan.Suggestions {
 		if !shown.Seen(sg.Key()) {
 			suggestions = append(suggestions, sg)
-		}
-	}
-	trials := learn.Backtest(txs, s.today.AddDate(0, 0, -backtestDays), maxEvidence)
-	threshold, found := learn.Threshold(trials, precision, minEvaluated)
-	var proposals []learn.Proposal
-	if found {
-		covered := func(t ledger.Transaction) bool { _, ok := s.rules.Match(t); return ok }
-		for _, p := range learn.Propose(txs, threshold, covered) {
-			if !shown.Seen(p.ID()) {
-				proposals = append(proposals, p)
-			}
 		}
 	}
 
@@ -197,6 +199,9 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		if !ok || prev.Source == "" || shown.Seen(amendmentKey(c.Charge, prev.Source)) {
 			continue
 		}
+		if _, isRule := rules.KeyName(prev.Source); isRule {
+			continue
+		}
 		amendments = append(amendments, categorize.Change{Charge: c.Charge, Before: prev.After, After: c.After, Source: prev.Source})
 	}
 	var newHints []string
@@ -215,7 +220,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		RunID: runID, At: started, Changes: plan.Changes, Applied: decisions,
 		Corrections: corrections, Amendments: amendments,
 		Undecided: plan.Undecided, Suggestions: suggestions,
-		RulesAdded: proposals, Threshold: threshold, ThresholdFound: found, Trials: trials,
+		RulesAdded: proposals, RulesAmended: revision.Amended, Threshold: threshold, ThresholdFound: found, Trials: trials,
 		Titles: s.titles, Transactions: byID,
 		Flags: plan.Flags, FlagsApplied: flags, Reasons: landed(j.reasons, unwritten),
 		Income: j.cycles, Tolerance: s.attention.Income.Tolerance,
@@ -233,9 +238,6 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 		// The amendment already showed this rule disagreeing; don't raise it again as a suggestion.
 		shown.Add(decide.Suggestion{Transaction: byID[a.Charge], Decision: decide.Decision{Category: a.Before.Category, Source: a.Source}}.Key())
 	}
-	for _, p := range proposals {
-		shown.Add(p.ID())
-	}
 	for _, k := range append(newHints, newUnreadable...) {
 		shown.Add(k)
 	}
@@ -251,6 +253,22 @@ func (r runner) deliver(ctx context.Context, out io.Writer, rep report.Run) erro
 		return report.WriteRun(out, rep)
 	}
 	return r.notify.report(ctx, out, rep)
+}
+
+// additions are the rules learned from proposals, each under a comment naming its evidence.
+func additions(proposals []learn.Proposal, titles map[ledger.CategoryID]string, today time.Time) []rules.Addition {
+	var out []rules.Addition
+	for _, p := range proposals {
+		noun := "categorizations"
+		if p.Count == 1 {
+			noun = "categorization"
+		}
+		out = append(out, rules.Addition{
+			Comment: fmt.Sprintf("added %s from %d %s of %s", day.Format(today), p.Count, noun, p.Key),
+			Rule:    rules.Rule{Payee: p.Pattern, Category: titles[p.Category], State: rules.Tentative},
+		})
+	}
+	return out
 }
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }

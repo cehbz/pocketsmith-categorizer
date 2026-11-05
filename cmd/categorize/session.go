@@ -36,11 +36,18 @@ type sessionLedger interface {
 	Transactions(ctx context.Context, first, last time.Time, needsReview bool) ([]ledger.Transaction, error)
 }
 
+// ruleFile is the rules file a run revises: it writes edits and additions and returns the
+// rules the file then holds.
+type ruleFile interface {
+	Revise(edits []rules.Edit, additions []rules.Addition) (rules.Rules, error)
+}
+
 // session is what every command needs: the ledger, its categories and rules, and today.
 type session struct {
 	ledger    sessionLedger
 	titles    map[ledger.CategoryID]string
 	rules     rules.Rules
+	rulesFile ruleFile
 	today     time.Time          // in the ledger's time zone, midnight UTC
 	attention attention.Settings // when transactions need the user
 	trips     trips.Settings
@@ -112,7 +119,7 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	for _, c := range cats {
 		titles[c.ID] = c.Title
 	}
-	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc), attention: set,
+	return &session{ledger: l, titles: titles, rules: rs, rulesFile: rules.File{Path: rulesPath, Categories: cats}, today: day.Of(time.Now(), loc), attention: set,
 		trips: tripSet, card: card, accounts: slices.Sorted(maps.Values(cfg.Plaid.Accounts)), calendar: cal,
 		receipts: mail, rates: fx.Cache{Path: config.RatesPath(home), Source: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: retry.Client(30 * time.Second)}},
 		merchants: merchants, loc: loc}, nil

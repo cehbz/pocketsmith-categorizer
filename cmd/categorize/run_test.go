@@ -15,11 +15,13 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
+	"github.com/cehbz/pocketsmith-categorizer/decide"
 	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/gmail"
 	"github.com/cehbz/pocketsmith-categorizer/grab"
 	"github.com/cehbz/pocketsmith-categorizer/journal"
 	"github.com/cehbz/pocketsmith-categorizer/lazada"
+	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/memo"
 	"github.com/cehbz/pocketsmith-categorizer/rules"
@@ -637,5 +639,145 @@ func TestTheReportHeadsTheRunWithItsStartInLocalTime(t *testing.T) {
 	}
 	if d := time.Since(at); d < -time.Minute || d > 2*time.Minute {
 		t.Errorf("header %q is %v from now in local time; want the run's start", header, d)
+	}
+}
+
+// ruleRun is a session whose rules come from a file holding a rule, ACME MOBILE to Phone (3),
+// over two ACME MOBILE charges in review and an earlier one the user filed in Phone, so the
+// payee isn't new.
+func ruleRun(t *testing.T, rule string) (*session, *fakeLedger, string) {
+	t.Helper()
+	cats := []ledger.Category{{ID: 3, Title: "Phone"}, {ID: 5, Title: "Food"}, {ID: 9, Title: "Cash"}}
+	path := filepath.Join(t.TempDir(), "rules.toml")
+	if err := os.WriteFile(path, []byte(rule), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := rules.Load(path, cats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := ledger.Account{Name: "Card"}
+	l := &fakeLedger{txs: map[int64]ledger.Transaction{
+		1: {ID: 1, Date: mustParse("2026-10-05"), Amount: -20, Payee: "ACME MOBILE", Account: card, State: ledger.State{NeedsReview: true}},
+		2: {ID: 2, Date: mustParse("2026-10-20"), Amount: -20, Payee: "ACME MOBILE", Account: card, State: ledger.State{NeedsReview: true}},
+		3: {ID: 3, Date: mustParse("2026-09-05"), Amount: -20, Payee: "ACME MOBILE", Account: card, State: ledger.State{Category: 3}},
+	}}
+	s := &session{ledger: l, titles: map[ledger.CategoryID]string{3: "Phone", 5: "Food", 9: "Cash"}, rules: rs,
+		rulesFile: rules.File{Path: path, Categories: cats}, today: mustParse("2026-11-03"), card: &fakeCard{}, accounts: []string{"Card"},
+		calendar: &fakeCalendar{}, receipts: &fakeMailbox{}, loc: time.UTC,
+		attention: attention.Settings{Start: mustParse("2026-12-01"), Size: attention.Size{Absolute: 1e9, SD: 1e3}}}
+	return s, l, path
+}
+
+const acmeRule = "[[rule]]\npayee = '(?i)^acme mobile'\ncategory = \"Phone\"\n"
+
+func TestARunAmendsTheRuleTheUserOverrodeFromThatChargeOn(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l, path := ruleRun(t, acmeRule)
+	first(t, newRunner, s)
+	if l.txs[1].State.Category != 3 || l.txs[2].State.Category != 3 {
+		t.Fatalf("first run: %+v, %+v; want both in Phone", l.txs[1].State, l.txs[2].State)
+	}
+	late := l.txs[2]
+	late.State.Category = 9 // the user's override of the later charge
+	l.txs[2] = late
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if want := acmeRule[:len(acmeRule)-len("category = \"Phone\"\n")] + "category = \"Cash\"\nstate = \"tentative\"\nfrom = 2026-10-20\n"; string(b) != want {
+		t.Errorf("rules file =\n%s\nwant\n%s", b, want)
+	}
+	if l.txs[1].State.Category != 3 {
+		t.Errorf("the earlier charge: %+v; want it left in Phone", l.txs[1].State)
+	}
+	if got := out.String(); !strings.Contains(got, "New Rules to Review") || !strings.Contains(got, "Amended ^acme mobile: Phone → Cash from Oct 20") || !strings.Contains(got, "apply-all") {
+		t.Errorf("report:\n%s", got)
+	}
+	if got := out.String(); strings.Contains(got, "Overridden Decisions") {
+		t.Errorf("report lists the rule's override for the user to apply:\n%s", got)
+	}
+}
+
+func TestARunAmendsTheRuleForAllChargesWithApplyAll(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l, path := ruleRun(t, acmeRule)
+	first(t, newRunner, s)
+	late := l.txs[2]
+	late.State.Category = 9
+	late.State.Labels = append(late.State.Labels, decide.ApplyAll)
+	l.txs[2] = late
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if strings.Contains(string(b), "from =") || !strings.Contains(string(b), "category = \"Cash\"") {
+		t.Errorf("rules file =\n%s\nwant Cash with no start date", b)
+	}
+	if got := l.txs[1].State; got.Category != 9 || got.NeedsReview {
+		t.Errorf("the earlier charge: %+v; want it re-filed in Cash, out of review", got)
+	}
+	if l.txs[2].State.HasLabel(decide.ApplyAll) {
+		t.Errorf("the overridden charge kept apply-all: %+v", l.txs[2].State)
+	}
+}
+
+func TestARunConfirmsATentativeRuleTheUserAccepted(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l, path := ruleRun(t, acmeRule+"state = \"tentative\"\n")
+	first(t, newRunner, s)
+	if !l.txs[1].State.NeedsReview || !l.txs[2].State.NeedsReview {
+		t.Fatalf("first run: %+v, %+v; want both left in review by the tentative rule", l.txs[1].State, l.txs[2].State)
+	}
+	accepted := l.txs[1]
+	accepted.State.NeedsReview = false
+	l.txs[1] = accepted
+	first(t, newRunner, s)
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), "state = \"confirmed\"") {
+		t.Errorf("rules file =\n%s\nwant the rule confirmed", b)
+	}
+	if l.txs[2].State.NeedsReview {
+		t.Errorf("the other charge: %+v; want it out of review", l.txs[2].State)
+	}
+}
+
+func TestARunWhoseRulesFileCantBeRevisedAppliesNothing(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l, path := ruleRun(t, acmeRule)
+	first(t, newRunner, s)
+	late := l.txs[2]
+	late.State.Category = 9
+	l.txs[2] = late
+	s.titles[9] = "Not A Category" // the amendment names a category the file can't load
+	l.updates = 0
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err == nil {
+		t.Error("the run succeeded")
+	}
+	if b, _ := os.ReadFile(path); string(b) != acmeRule {
+		t.Errorf("rules file =\n%s\nwant it as it was", b)
+	}
+	if l.updates != 0 {
+		t.Errorf("%d updates; want none", l.updates)
+	}
+}
+
+func TestALearnedRuleIsAddedTentativeUnderItsComment(t *testing.T) {
+	p := learn.Proposal{Key: "TEA HOUSE", Category: 5, Count: 3, Pattern: learn.Pattern("TEA HOUSE")}
+	got := additions([]learn.Proposal{p}, map[ledger.CategoryID]string{5: "Food"}, mustParse("2026-11-03"))
+	want := []rules.Addition{{Comment: "added 2026-11-03 from 3 categorizations of TEA HOUSE", Rule: rules.Rule{Payee: p.Pattern, Category: "Food", State: rules.Tentative}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("additions = %+v, want %+v", got, want)
+	}
+}
+
+func TestALearnedRuleFromOneCategorizationSaysSo(t *testing.T) {
+	p := learn.Proposal{Key: "TEA HOUSE", Category: 5, Count: 1, Pattern: learn.Pattern("TEA HOUSE")}
+	got := additions([]learn.Proposal{p}, map[ledger.CategoryID]string{5: "Food"}, mustParse("2026-11-03"))
+	if want := "added 2026-11-03 from 1 categorization of TEA HOUSE"; len(got) != 1 || got[0].Comment != want {
+		t.Errorf("additions = %+v, want one under %q", got, want)
 	}
 }

@@ -3,7 +3,6 @@
 package learn
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -40,9 +39,6 @@ type Proposal struct {
 	Count    int    // the user's categorizations behind it
 	Pattern  string // payee pattern for the rule
 }
-
-// ID identifies the proposal for remembering it was shown.
-func (p Proposal) ID() string { return fmt.Sprintf("propose %s %d", p.Key, p.Category) }
 
 // Propose returns a proposal for each payee key whose user categorizations in txs are
 // unanimous and number least or more, unless covered reports that a layer already decides

@@ -78,12 +78,6 @@ func TestProposeSkipsEmptyKeys(t *testing.T) {
 	}
 }
 
-func TestProposalIDNamesKeyAndCategory(t *testing.T) {
-	if got, want := (Proposal{Key: "CAFE ONE", Category: 5}).ID(), "propose CAFE ONE 5"; got != want {
-		t.Errorf("ID = %q, want %q", got, want)
-	}
-}
-
 func TestBacktestFindsTheThreshold(t *testing.T) {
 	txs := []ledger.Transaction{
 		// steady: always 5, twice before the cutoff, twice after
