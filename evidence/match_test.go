@@ -219,3 +219,109 @@ func TestATaxInvoiceDuplicatingAPricedBillExplainsNoOtherCharge(t *testing.T) {
 		t.Errorf("unexplained %v, unmatched %+v; want charge 2 and no unmatched receipt", ids(m.Unexplained), m.Unmatched)
 	}
 }
+
+// refunded maps each credit refunding a part to the part's reference.
+func refunded(m Matching) map[int64]string {
+	out := map[int64]string{}
+	for _, r := range m.Refunds {
+		out[r.Credit.ID] = r.Part.Ref
+	}
+	return out
+}
+
+func TestACreditRefundsACancelledPartAheadOfAnUndeliveredAheadOfADeliveredOne(t *testing.T) {
+	ev := Evidence{
+		Receipts:      []Receipt{order("2026-03-01", "900000000000001", 350), order("2026-03-02", "900000000000002", 350), order("2026-03-03", "900000000000003", 350)},
+		Deliveries:    []Delivery{{Merchant: "lazada", Ref: "900000000000001"}},
+		Cancellations: []Cancellation{{Merchant: "lazada", Ref: "900000000000002"}},
+	}
+	for _, c := range []struct {
+		credits []ledger.Transaction
+		want    map[int64]string
+	}{
+		{[]ledger.Transaction{credit(11, "2026-03-10", 10.03)}, map[int64]string{11: "900000000000002"}},
+		{[]ledger.Transaction{credit(11, "2026-03-10", 10.03), credit(12, "2026-03-11", 10.03)},
+			map[int64]string{11: "900000000000002", 12: "900000000000003"}},
+		{[]ledger.Transaction{credit(11, "2026-03-10", 10.03), credit(12, "2026-03-11", 10.03), credit(13, "2026-03-12", 10.03)}, // a dispute
+			map[int64]string{11: "900000000000002", 12: "900000000000003", 13: "900000000000001"}},
+	} {
+		m := match(t, lazada, ev, c.credits...)
+		got := map[string]bool{}
+		for _, ref := range refunded(m) {
+			got[ref] = true
+		}
+		want := map[string]bool{}
+		for _, ref := range c.want {
+			want[ref] = true
+		}
+		if !reflect.DeepEqual(got, want) || len(m.Unrefunded) != 0 {
+			t.Errorf("%d credits refund %v, %d unrefunded; want %v", len(c.credits), refunded(m), len(m.Unrefunded), c.want)
+		}
+	}
+}
+
+func TestACreditDatedBeforeItsCancellationFindsItsPart(t *testing.T) {
+	ev := Evidence{
+		Receipts:      []Receipt{order("2026-03-01", "900000000000001", 350), order("2026-03-01", "900000000000002", 350)},
+		Cancellations: []Cancellation{{Merchant: "lazada", Ref: "900000000000002", At: date("2026-03-12")}},
+	}
+	m := match(t, lazada, ev, credit(11, "2026-03-10", 10.03))
+	if want := map[int64]string{11: "900000000000002"}; !reflect.DeepEqual(refunded(m), want) {
+		t.Errorf("refunds %v; want %v", refunded(m), want)
+	}
+}
+
+func TestACreditCanCarryItsChargesDateAndBeConvertedUpToTwoWeeksLater(t *testing.T) {
+	// 350 THB is 10.03 USD at 35 and 9.49 at 37, the rate from 2026-03-15.
+	rates := func(d time.Time) (float64, error) {
+		if d.Before(date("2026-03-15")) {
+			return 35, nil
+		}
+		return 37, nil
+	}
+	for _, c := range []struct {
+		credit   ledger.Transaction
+		refunded bool
+	}{
+		{credit(11, "2026-03-04", 9.49), true},  // converted 11 days after its date
+		{credit(11, "2026-02-28", 9.49), false}, // converted 15 days after it
+	} {
+		m, err := lazada.Match(Evidence{Receipts: []Receipt{order("2026-02-27", "900000000000001", 350)}}, []ledger.Transaction{c.credit}, rates, ny)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := len(m.Refunds) == 1; got != c.refunded {
+			t.Errorf("credit dated %s: refunded %t; want %t", day.Format(c.credit.Date), got, c.refunded)
+		}
+	}
+}
+
+func TestACreditWithNoCandidatePartIsUnrefunded(t *testing.T) {
+	invoice := Receipt{Merchant: "lazada", At: date("2026-03-01"), Parts: []Part{{Ref: "tax invoice", Kind: Bill}}}
+	ev := Evidence{Receipts: []Receipt{order("2026-01-01", "900000000000001", 350), order("2026-03-20", "900000000000002", 350), invoice}}
+	m := match(t, lazada, ev,
+		credit(11, "2026-03-10", 10.03), // 68 days after the first order, before the second
+		credit(12, "2026-03-25", 20.00), // no part near its amount
+		credit(13, "2026-03-26", 10.03), // the second order's
+		credit(14, "2026-03-27", 10.03)) // the second order again
+	if want := map[int64]string{13: "900000000000002"}; !reflect.DeepEqual(refunded(m), want) || !slices.Equal(ids(m.Unrefunded), []int64{11, 12, 14}) {
+		t.Errorf("refunds %v, unrefunded %v; want %v and 11, 12, 14 unrefunded", refunded(m), ids(m.Unrefunded), want)
+	}
+}
+
+func TestWithoutReceiptsMatchingAsksNoRate(t *testing.T) {
+	m, err := lazada.Match(Evidence{}, []ledger.Transaction{charge(1, "2026-03-04", 10.03), credit(2, "2026-03-05", 10.03)}, nil, ny)
+	if err != nil || !slices.Equal(ids(m.Unexplained), []int64{1}) || !slices.Equal(ids(m.Unrefunded), []int64{2}) {
+		t.Errorf("Match = %+v, %v; want charge 1 unexplained and credit 2 unrefunded", m, err)
+	}
+}
+
+func TestACreditRefundsOneOrderOfACheckout(t *testing.T) {
+	a, b := order("2026-03-04", "900000000000001", 340), order("2026-03-04", "900000000000002", 120)
+	a.Checkout, b.Checkout = "2026-03-04T07:00:00Z", "2026-03-04T07:00:00Z"
+	// 120 THB at 35 with the markup is 3.44 USD.
+	m := match(t, lazada, Evidence{Receipts: []Receipt{a, b}}, charge(1, "2026-03-04", 13.18), credit(2, "2026-03-09", 3.44))
+	if want := map[int64]string{2: "900000000000002"}; !reflect.DeepEqual(refunded(m), want) || len(m.Paid) != 1 {
+		t.Errorf("refunds %v, paid %v; want %v and the checkout paid", refunded(m), paid(m), want)
+	}
+}

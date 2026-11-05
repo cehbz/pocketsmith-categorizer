@@ -18,8 +18,19 @@ type Rates func(date time.Time) (float64, error)
 const Markup = 0.0029
 
 const (
-	lagCost    = 0.001 // per day a charge follows its receipt
-	impossible = 1e3   // finite stand-in for a forbidden pair; munkres rejects infinities
+	refundAge  = 60     // most days a credit follows the purchase of the part it refunds
+	refundPost = 14     // most days after its date a credit's amount can have been converted
+	lagCost    = 0.001  // per day a charge follows its receipt
+	ageCost    = 0.0001 // per day a credit follows the part it refunds
+	statusCost = 0.1    // per step from cancelled to undelivered to delivered; outweighs any amount's difference
+	impossible = 1e3    // finite stand-in for a forbidden pair; munkres rejects infinities
+)
+
+// A part's status, in the order a credit refunds it.
+const (
+	cancelled = iota
+	undelivered
+	delivered
 )
 
 // Paid is a charge and the receipt it paid.
@@ -28,28 +39,41 @@ type Paid struct {
 	Receipt Receipt
 }
 
+// Refund is a credit and the part it refunds.
+type Refund struct {
+	Credit ledger.Transaction
+	Part   Part
+}
+
 // Matching is a merchant's evidence paired with its charges and credits.
 type Matching struct {
 	Paid        []Paid
+	Refunds     []Refund
 	Unmatched   []Receipt            // receipts no charge paid
 	Unexplained []ledger.Transaction // charges no receipt explains
+	Unrefunded  []ledger.Transaction // credits with no part to refund
 }
 
-// Match pairs m's charges among txs, the debits carrying its payees dated from its start,
-// with its receipts in ev, its checkouts joined; loc is the ledger's time zone. All are
-// matched together at the least total cost. A receipt with an amount pays a charge whose USD
+// Match pairs m's charges and credits among txs, those carrying its payees dated from its
+// start, with its evidence in ev, its checkouts joined; loc is the ledger's time zone. Charges
+// are matched together at the least total cost, and so are credits. A receipt with an amount pays a charge whose USD
 // is within m's tolerance of the receipt's THB at the reference rate of the receipt's day,
 // the day before or the day after, with the card's markup, dated from the receipt's day to
 // m's lag later. A receipt without an amount then explains a charge within a day of it that
-// no other receipt explains.
+// no other receipt explains. A credit refunds a part with an amount bought up to 60 days
+// before it, cancelled ahead of undelivered ahead of delivered, whose THB is within m's
+// tolerance of the credit's USD at a rate from the credit's date to 14 days after it.
 func (m Merchant) Match(ev Evidence, txs []ledger.Transaction, rates Rates, loc *time.Location) (Matching, error) {
-	var charges []ledger.Transaction
+	var charges, credits []ledger.Transaction
 	for _, t := range txs {
 		if t.Transfer || t.Date.Before(m.Start) || !slices.Contains(m.Payees, t.Payee) {
 			continue
 		}
-		if t.Amount < 0 {
+		switch {
+		case t.Amount < 0:
 			charges = append(charges, t)
+		case t.Amount > 0:
+			credits = append(credits, t)
 		}
 	}
 	var receipts []Receipt
@@ -58,9 +82,15 @@ func (m Merchant) Match(ev Evidence, txs []ledger.Transaction, rates Rates, loc 
 			receipts = append(receipts, r)
 		}
 	}
+	receipts = Checkouts(receipts)
 	var out Matching
-	err := m.charges(Checkouts(receipts), charges, rates, loc, &out)
-	return out, err
+	if err := m.charges(receipts, charges, rates, loc, &out); err != nil {
+		return Matching{}, err
+	}
+	if err := m.credits(ev, receipts, credits, rates, loc, &out); err != nil {
+		return Matching{}, err
+	}
+	return out, nil
 }
 
 // charges pairs receipts with charges into out: those with an amount first, then those
@@ -152,6 +182,77 @@ func (m Merchant) charges(receipts []Receipt, charges []ledger.Transaction, rate
 		if !claimed[j] {
 			out.Unexplained = append(out.Unexplained, c)
 		}
+	}
+	return nil
+}
+
+// credits pairs credits with the parts of receipts they refund into out.
+func (m Merchant) credits(ev Evidence, receipts []Receipt, credits []ledger.Transaction, rates Rates, loc *time.Location, out *Matching) error {
+	status := map[string]int{}
+	for _, d := range ev.Deliveries {
+		if d.Merchant == m.Name {
+			status[d.Ref] = delivered
+		}
+	}
+	for _, c := range ev.Cancellations {
+		if c.Merchant == m.Name {
+			status[c.Ref] = cancelled
+		}
+	}
+	type bought struct {
+		part Part
+		day  time.Time
+	}
+	var parts []bought
+	for _, r := range receipts {
+		for _, p := range r.Parts {
+			if p.THB > 0 {
+				parts = append(parts, bought{p, day.Of(r.At, loc)})
+			}
+		}
+	}
+	cost := make([][]float64, len(credits))
+	for i, c := range credits {
+		cost[i] = make([]float64, len(parts))
+		if len(parts) == 0 {
+			continue
+		}
+		var rs []float64
+		for k := 0; k <= refundPost; k++ {
+			rate, err := rates(c.Date.AddDate(0, 0, k))
+			if err != nil {
+				return err
+			}
+			rs = append(rs, rate)
+		}
+		for j, b := range parts {
+			want := make([]float64, len(rs))
+			for k, rate := range rs {
+				want[k] = b.part.THB / rate * (1 + Markup)
+			}
+			age := day.Between(b.day, c.Date)
+			e := closest(c.Amount, want)
+			if age < 0 || age > refundAge || e > m.Tolerance {
+				cost[i][j] = impossible
+				continue
+			}
+			st, ok := status[b.part.Ref]
+			if !ok {
+				st = undelivered
+			}
+			cost[i][j] = statusCost*float64(st) + e + ageCost*float64(age)
+		}
+	}
+	refunds, err := assign(cost)
+	if err != nil {
+		return err
+	}
+	for i, j := range refunds {
+		if j < 0 {
+			out.Unrefunded = append(out.Unrefunded, credits[i])
+			continue
+		}
+		out.Refunds = append(out.Refunds, Refund{Credit: credits[i], Part: parts[j].part})
 	}
 	return nil
 }
