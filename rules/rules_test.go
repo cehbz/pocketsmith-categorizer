@@ -186,3 +186,69 @@ func TestARuleIsNamedByItsPayeePatternElseItsAccount(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadReadsStateAndStartDate(t *testing.T) {
+	r := mustLoad(t, "[[rule]]\npayee = \"x\"\ncategory = \"Phone\"\nstate = \"tentative\"\nfrom = 2026-10-01\n")[0]
+	if r.State != Tentative || !r.From.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("rule = %+v; want tentative from 2026-10-01 UTC", r)
+	}
+}
+
+func TestLoadRejectsABadState(t *testing.T) {
+	if _, err := load(t, "[[rule]]\npayee = \"x\"\ncategory = \"Phone\"\nstate = \"maybe\"\n"); err == nil {
+		t.Error("state maybe loaded")
+	}
+}
+
+func TestARuleDoesntMatchChargesBeforeItsStartDate(t *testing.T) {
+	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)acme\"\ncategory = \"Phone\"\nfrom = 2026-10-01\n")
+	before, on := tx("ACME", "Card", -5, ledger.State{}), tx("ACME", "Card", -5, ledger.State{})
+	before.Date, on.Date = time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if _, ok := rs.Match(before); ok {
+		t.Error("a charge before the start date matched")
+	}
+	if _, ok := rs.Match(on); !ok {
+		t.Error("a charge on the start date didn't match")
+	}
+	if !rs.Covers(before) {
+		t.Error("the rule doesn't cover its payee's charge before its start date")
+	}
+}
+
+func TestARejectedRuleDecidesNothingButCoversItsPayees(t *testing.T) {
+	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)acme\"\ncategory = \"Phone\"\nstate = \"rejected\"\n")
+	acme := tx("ACME", "Card", -5, ledger.State{})
+	if _, ok := rs.Decide(acme); ok {
+		t.Error("a rejected rule decided")
+	}
+	if !rs.Covers(acme) {
+		t.Error("a rejected rule doesn't cover its payee")
+	}
+	if rs.Covers(tx("OTHER", "Card", -5, ledger.State{})) {
+		t.Error("a rule covers a payee it doesn't match")
+	}
+}
+
+func TestATentativeRulesDecisionIsTentative(t *testing.T) {
+	for state, want := range map[string]bool{"": false, Confirmed: false, Tentative: true} {
+		rs := mustLoad(t, "[[rule]]\npayee = \"(?i)acme\"\ncategory = \"Phone\"\nstate = \""+state+"\"\n")
+		if d, ok := rs.Decide(tx("ACME", "Card", -5, ledger.State{})); !ok || d.Tentative != want {
+			t.Errorf("state %q: decision %+v, %v; want tentative %v", state, d, ok, want)
+		}
+	}
+}
+
+func TestKeyNamesTheStartDateButNotTheState(t *testing.T) {
+	plain := mustLoad(t, "[[rule]]\npayee = \"x\"\ncategory = \"Phone\"\n")[0]
+	tentative := mustLoad(t, "[[rule]]\npayee = \"x\"\ncategory = \"Phone\"\nstate = \"tentative\"\n")[0]
+	dated := mustLoad(t, "[[rule]]\npayee = \"x\"\ncategory = \"Phone\"\nfrom = 2026-10-01\n")[0]
+	if want := `payee="x" account="" type="" min=0 max=0 category="Phone"`; plain.Key() != want {
+		t.Errorf("key = %q, want %q", plain.Key(), want)
+	}
+	if tentative.Key() != plain.Key() {
+		t.Errorf("the state changed the key: %q", tentative.Key())
+	}
+	if want := `payee="x" account="" type="" min=0 max=0 from=2026-10-01 category="Phone"`; dated.Key() != want {
+		t.Errorf("key = %q, want %q", dated.Key(), want)
+	}
+}

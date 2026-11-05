@@ -6,28 +6,41 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
+	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 )
 
 // Label marks the rules layer's decisions.
 const Label = "auto-rule"
 
+// A rule's states: a tentative rule's decisions leave review as it was, a confirmed rule's
+// take a charge out of review, and a rejected rule decides nothing but still covers its payees.
+const (
+	Tentative = "tentative"
+	Confirmed = "confirmed"
+	Rejected  = "rejected"
+)
+
 // Rule gives a category to the transactions that meet all its conditions.
 type Rule struct {
-	Payee    string  `toml:"payee"`    // Go regular expression matched against the payee
-	Account  string  `toml:"account"`  // account name
-	Type     string  `toml:"type"`     // "debit" or "credit"
-	Min      float64 `toml:"min"`      // smallest absolute amount
-	Max      float64 `toml:"max"`      // largest absolute amount; zero means no limit
-	Days     []int   `toml:"days"`     // first and last day of the month, inclusive; empty means any day
-	Category string  `toml:"category"` // category title
+	Payee    string    `toml:"payee"`    // Go regular expression matched against the payee
+	Account  string    `toml:"account"`  // account name
+	Type     string    `toml:"type"`     // "debit" or "credit"
+	Min      float64   `toml:"min"`      // smallest absolute amount
+	Max      float64   `toml:"max"`      // largest absolute amount; zero means no limit
+	Days     []int     `toml:"days"`     // first and last day of the month, inclusive; empty means any day
+	Category string    `toml:"category"` // category title
+	State    string    `toml:"state"`    // "tentative", "confirmed" or "rejected"; empty means confirmed
+	From     time.Time `toml:"from"`     // first date the rule decides; zero means any date
 
 	payee *regexp.Regexp
 	id    ledger.CategoryID
@@ -88,6 +101,14 @@ func (r *Rule) check(ids map[string]ledger.CategoryID) error {
 	if len(r.Days) != 0 && (len(r.Days) != 2 || r.Days[0] < 1 || r.Days[1] > 31 || r.Days[0] > r.Days[1]) {
 		return fmt.Errorf("days %v is not a first and last day of the month", r.Days)
 	}
+	switch r.State {
+	case "", Tentative, Confirmed, Rejected:
+	default:
+		return fmt.Errorf("state %q is not tentative, confirmed or rejected", r.State)
+	}
+	if !r.From.IsZero() {
+		r.From = time.Date(r.From.Year(), r.From.Month(), r.From.Day(), 0, 0, 0, 0, time.UTC)
+	}
 	id, ok := ids[r.Category]
 	if !ok {
 		return fmt.Errorf("category %q is not a PocketSmith category", r.Category)
@@ -110,18 +131,25 @@ func (r Rule) Matches(t ledger.Transaction) bool {
 	if len(r.Days) == 2 && (t.Date.Day() < r.Days[0] || t.Date.Day() > r.Days[1]) {
 		return false
 	}
+	if !r.From.IsZero() && t.Date.Before(r.From) {
+		return false
+	}
 	a := math.Abs(t.Amount)
 	return a >= r.Min && (r.Max == 0 || a <= r.Max)
 }
 
 // Key identifies the rule by its conditions and category; it changes when the rule does. An
-// empty day window is left out.
+// empty day window and a missing start date are left out; the state isn't part of the key.
 func (r Rule) Key() string {
 	days := ""
 	if len(r.Days) != 0 {
 		days = fmt.Sprintf(" days=%v", r.Days)
 	}
-	return fmt.Sprintf("payee=%q account=%q type=%q min=%v max=%v%s category=%q", r.Payee, r.Account, r.Type, r.Min, r.Max, days, r.Category)
+	from := ""
+	if !r.From.IsZero() {
+		from = " from=" + day.Format(r.From)
+	}
+	return fmt.Sprintf("payee=%q account=%q type=%q min=%v max=%v%s%s category=%q", r.Payee, r.Account, r.Type, r.Min, r.Max, days, from, r.Category)
 }
 
 // Name is how the report shows the rule: its payee pattern without a leading (?i), or its
@@ -166,14 +194,22 @@ func quoted(s, prefix string) (value, rest string, ok bool) {
 // CategoryID is the PocketSmith category the rule gives.
 func (r Rule) CategoryID() ledger.CategoryID { return r.id }
 
-// Match returns the first rule that t meets.
+// Match returns the first rule that isn't rejected and that t meets.
 func (rs Rules) Match(t ledger.Transaction) (Rule, bool) {
 	for _, r := range rs {
-		if r.Matches(t) {
+		if r.State != Rejected && r.Matches(t) {
 			return r, true
 		}
 	}
 	return Rule{}, false
+}
+
+// Covers reports whether a rule in any state covers t: meets every condition but the start date.
+func (rs Rules) Covers(t ledger.Transaction) bool {
+	return slices.ContainsFunc(rs, func(r Rule) bool {
+		r.From = time.Time{}
+		return r.Matches(t)
+	})
 }
 
 // Decide is the rules layer's decision for t.
@@ -182,7 +218,7 @@ func (rs Rules) Decide(t ledger.Transaction) (decide.Decision, bool) {
 	if !ok {
 		return decide.Decision{}, false
 	}
-	return decide.Decision{Category: r.id, Label: Label, Source: r.Key(), Reason: categorize.Reason{Why: categorize.ByRule, Rule: r.Name()}}, true
+	return decide.Decision{Category: r.id, Label: Label, Source: r.Key(), Reason: categorize.Reason{Why: categorize.ByRule, Rule: r.Name()}, Tentative: r.State == Tentative}, true
 }
 
 // Stats is how a rule's decisions compare with the user's categorizations.

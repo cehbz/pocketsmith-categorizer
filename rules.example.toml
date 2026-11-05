@@ -1,6 +1,13 @@
 # Copy to ~/.config/pocketsmith-categorizer/rules.toml. Rules are checked in order and the
 # first match decides. A rule needs a payee pattern or an account; every condition it has
 # must hold. Categories are PocketSmith category titles.
+#
+# The categorizer adds the rules it learns at the end, tentative, and amends a rule when you
+# change the category of a charge it decided: the rule takes your category from that charge's
+# date on, or for all its charges when you also add the label apply-all to the charge. A
+# tentative rule's charges stay in review until you accept one, which confirms the rule.
+# Set state = "rejected" to keep a rule from deciding or being learned again; delete it to
+# let it be learned again.
 
 [[rule]]
 payee = '(?i)^acme mobile\b'   # Go regular expression matched against the payee
@@ -13,3 +20,9 @@ type = "debit"                  # "debit" or "credit"
 min = 100                       # smallest absolute amount
 max = 1000                      # largest absolute amount
 category = "Cash"
+
+[[rule]]
+payee = '(?i)\bTEA[^A-Za-z]*HOUSE\b'
+category = "Dining"
+state = "tentative"              # "tentative", "confirmed" or "rejected"; absent means confirmed
+from = 2026-01-15                # first date the rule decides; absent means any date
