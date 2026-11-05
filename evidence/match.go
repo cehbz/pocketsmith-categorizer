@@ -56,13 +56,14 @@ type Matching struct {
 
 // Match pairs m's charges and credits among txs, those carrying its payees dated from its
 // start, with its evidence in ev, its checkouts joined; loc is the ledger's time zone. Charges
-// are matched together at the least total cost, and so are credits. A receipt with an amount pays a charge whose USD
-// is within m's tolerance of the receipt's THB at the reference rate of the receipt's day,
-// the day before or the day after, with the card's markup, dated from the receipt's day to
-// m's lag later. A receipt without an amount then explains a charge within a day of it that
-// no other receipt explains. A credit refunds a part with an amount bought up to 60 days
-// before it, cancelled ahead of undelivered ahead of delivered, whose THB is within m's
-// tolerance of the credit's USD at a rate from the credit's date to 14 days after it.
+// are matched together at the least total cost, and so are credits. A receipt with an amount
+// pays a charge whose USD is within m's tolerance of the receipt's THB at the reference rate
+// of a trading day: the receipt's, the one before it or the one after it, with the card's
+// markup, dated from the receipt's day to m's lag later. A receipt without an amount then
+// explains a charge within a day of it that no other receipt explains. A credit refunds a part
+// with an amount bought up to 60 days before it, cancelled ahead of undelivered ahead of
+// delivered, whose THB is within m's tolerance of the credit's USD at a rate from the credit's
+// date to 14 days after it.
 func (m Merchant) Match(ev Evidence, txs []ledger.Transaction, rates Rates, loc *time.Location) (Matching, error) {
 	var charges, credits []ledger.Transaction
 	for _, t := range txs {

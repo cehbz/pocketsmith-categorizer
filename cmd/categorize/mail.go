@@ -19,7 +19,7 @@ const overlap = 2
 
 // readMail reads each merchant's mail into the store: from overlap days before the store's
 // read point, or from start when it hasn't read any or that is earlier, to today, skipping the
-// messages the store holds. Only when every search succeeds does the store keep what was
+// messages the store holds evidence from; those it holds as unreadable are read again. Only when every search succeeds does the store keep what was
 // read, its read point move to today and the messages received before start leave it, and
 // is it saved; a failed search leaves it as it was.
 func readMail(ctx context.Context, s *session, store *evidence.Store, start time.Time) error {
@@ -28,7 +28,7 @@ func readMail(ctx context.Context, s *session, store *evidence.Store, start time
 		from = since
 	}
 	read := map[string]bool{}
-	skip := func(id string) bool { return store.Holds(id) || read[id] }
+	skip := func(id string) bool { return store.HoldsEvidence(id) || read[id] }
 	var reads []evidence.Read
 	for _, m := range s.merchants {
 		for _, q := range m.Queries {

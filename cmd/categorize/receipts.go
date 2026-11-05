@@ -98,7 +98,7 @@ func explain(ctx context.Context, s *session, ev evidence.Evidence, unreadable [
 			ex.reasons[c.ID] = append(ex.reasons[c.ID], evidence.NoPurchase(m.Name))
 		}
 		for _, r := range mt.Unmatched {
-			if !r.Amountless() { // a tax invoice is often redundant with its bill's receipt
+			if !r.Amountless() && r.THB() != 0 { // a tax invoice is often redundant with its bill's receipt; a receipt for nothing has no charge
 				r.At = r.At.In(s.loc)
 				ex.receipts.Unmatched = append(ex.receipts.Unmatched, r)
 			}

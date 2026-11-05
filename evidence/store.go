@@ -63,6 +63,13 @@ func (s *Store) Holds(id string) bool {
 	return ok
 }
 
+// HoldsEvidence reports whether the store has read message id into evidence, as opposed to
+// not at all or as unreadable.
+func (s *Store) HoldsEvidence(id string) bool {
+	r, ok := s.reads[id]
+	return ok && r.Unreadable == ""
+}
+
 // Add keeps r, replacing any read of the same message.
 func (s *Store) Add(r Read) { s.reads[r.ID] = r }
 

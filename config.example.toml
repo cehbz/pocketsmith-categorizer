@@ -4,7 +4,7 @@
 # path of a file only its owner can read, for unattended runs.
 key_ref = "op://VAULT/ITEM/FIELD"
 
-# PocketSmith transaction account that carries the Grab charges.
+# PocketSmith transaction account that carries the charges of the merchants below.
 account_id = 1234567
 
 # Each merchant: the payees its charges carry, the first day its receipts reach your mail,
@@ -21,7 +21,7 @@ express = "Transport"
 
 [merchants.lazada]
 payees = ["WWW.2C2P.COM*LAZADA PAY"]
-start = "2026-01-01"
+start = "2024-12-10"
 stay_home = true   # its charges are never trip spending
 
 [merchants.lazada.categories]

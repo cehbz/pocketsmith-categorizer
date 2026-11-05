@@ -205,3 +205,20 @@ func TestTheStoreHoldsNoMessageText(t *testing.T) {
 		}
 	}
 }
+
+func TestAMessageStoredUnreadableIsReadAgainAndItsNewEvidenceKept(t *testing.T) {
+	store, path := emptyStore(t)
+	store.ReadTo = mustParse("2026-11-01")
+	store.Add(evidence.Read{ID: "m1", Merchant: "grab", Received: at("2026-10-31T05:00:00Z"), Unreadable: "no total"})
+	box := &fakeMailbox{messages: map[string][]gmail.Message{grab.Query: {ride("m1", "2026-10-31T05:00:00Z")}}}
+	if err := readMail(context.Background(), mailSession(box), store, mustParse("2026-10-01")); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(box.read, []string{"m1"}) {
+		t.Errorf("read %v; want m1 read again", box.read)
+	}
+	got := load(t, path)
+	if u := got.Unreadable(); len(u) != 0 || len(got.Evidence().Receipts) != 1 {
+		t.Errorf("unreadable %+v, receipts %+v; want m1's ride kept once and nothing unreadable", u, got.Evidence().Receipts)
+	}
+}

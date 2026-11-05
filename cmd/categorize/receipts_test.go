@@ -254,3 +254,14 @@ func TestARefundOfAPartWhoseChargeIsOutsideTheLookbackNamesThePart(t *testing.T)
 		t.Errorf("Decide = %+v, %t, paid %v; want %+v and no paid entry", got, ok, ex.paid, want)
 	}
 }
+
+func TestAReceiptTotallingNothingIsNotListedAsUnmatched(t *testing.T) {
+	free := evidence.Receipt{Merchant: "lazada", At: at("2026-10-22T03:00:00Z"), Parts: []evidence.Part{{Ref: "900000000000009", Kind: evidence.Order}}}
+	ex, err := explain(context.Background(), receiptSession(t), evidence.Evidence{Receipts: []evidence.Receipt{free}}, nil, nil, mustParse("2026-10-01"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := ex.receipts.Unmatched; len(u) != 0 {
+		t.Errorf("unmatched = %+v; want none for a receipt totalling 0.00", u)
+	}
+}
