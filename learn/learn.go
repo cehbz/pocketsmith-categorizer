@@ -47,7 +47,9 @@ func (p Proposal) ID() string { return fmt.Sprintf("propose %s %d", p.Key, p.Cat
 // Propose returns a proposal for each payee key whose user categorizations in txs are
 // unanimous and number least or more, unless covered reports that a layer already decides
 // one of them. A key is a payee's first two words, lengthened a word at a time while the
-// categorizations behind it disagree. Proposals are sorted by key.
+// categorizations behind it disagree. A proposal is dropped when its key has fewer than 4
+// letters or its pattern matches a transaction in txs categorized otherwise, whoever
+// categorized it. Proposals are sorted by key.
 func Propose(txs []ledger.Transaction, least int, covered func(ledger.Transaction) bool) []Proposal {
 	var decided []judged
 	for _, t := range txs {
@@ -59,8 +61,24 @@ func Propose(txs []ledger.Transaction, least int, covered func(ledger.Transactio
 		}
 	}
 	out := propose(decided, 2, least, covered)
+	out = slices.DeleteFunc(out, func(p Proposal) bool { return broad(p, txs) })
 	slices.SortFunc(out, func(a, b Proposal) int { return strings.Compare(a.Key, b.Key) })
 	return out
+}
+
+// minKeyLetters is the fewest letters a proposal's key needs: a shorter one matches too much.
+const minKeyLetters = 4
+
+// broad reports whether p would match too much: its key is short, or its pattern matches a
+// transaction in txs, whoever categorized it, in a category other than p's.
+func broad(p Proposal, txs []ledger.Transaction) bool {
+	if len(strings.ReplaceAll(p.Key, " ", "")) < minKeyLetters {
+		return true
+	}
+	re := regexp.MustCompile(p.Pattern)
+	return slices.ContainsFunc(txs, func(t ledger.Transaction) bool {
+		return t.State.Category != 0 && t.State.Category != p.Category && re.MatchString(t.Payee)
+	})
 }
 
 // judged is a user categorization with its payee's words.

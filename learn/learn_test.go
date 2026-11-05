@@ -145,3 +145,26 @@ func TestBacktestScoresLengthenedKeys(t *testing.T) {
 		t.Errorf("Backtest min 2 = %+v, want %+v", got, want)
 	}
 }
+
+func TestProposeDropsShortKeys(t *testing.T) {
+	txs := []ledger.Transaction{user("AB C 1", "2026-01-01", 5), user("AB C 2", "2026-01-02", 5), user("TEAS 1", "2026-01-01", 6), user("TEAS 2", "2026-01-02", 6)}
+	got := Propose(txs, 1, never)
+	if len(got) != 1 || got[0].Key != "TEAS" {
+		t.Errorf("Propose = %+v; want TEAS alone: AB C has 3 letters", got)
+	}
+}
+
+func TestProposeDropsAPatternMatchingAnotherCategory(t *testing.T) {
+	owned := ledger.Transaction{Payee: "TEA HOUSE ANNEX", State: ledger.State{Category: 7, Labels: []string{"auto-rule"}}}
+	inReview := ledger.Transaction{Payee: "TEA HOUSE KIOSK", State: ledger.State{Category: 8, NeedsReview: true}}
+	uncategorized := ledger.Transaction{Payee: "TEA HOUSE", State: ledger.State{NeedsReview: true}}
+	base := []ledger.Transaction{user("TEA HOUSE 1", "2026-01-01", 5), user("TEA HOUSE 2", "2026-01-02", 5)}
+	if got := Propose(append(slices.Clone(base), uncategorized), 1, never); len(got) != 1 {
+		t.Errorf("Propose with an uncategorized match = %+v; want TEA HOUSE", got)
+	}
+	for _, other := range []ledger.Transaction{owned, inReview} {
+		if got := Propose(append(slices.Clone(base), other), 1, never); len(got) != 0 {
+			t.Errorf("Propose with %q in category %d = %+v; want none", other.Payee, other.State.Category, got)
+		}
+	}
+}
