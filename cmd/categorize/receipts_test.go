@@ -97,8 +97,8 @@ func TestGrabChargesTakeTheirReceiptsKindsCategory(t *testing.T) {
 		tx   ledger.Transaction
 		want decide.Decision
 	}{
-		{ride, decide.Decision{Category: 21, Label: "grab-auto", Source: "grab A-TESTRIDE0001", Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-TESTRIDE0001"}}},
-		{food, decide.Decision{Category: 22, Label: "grab-auto", Source: "grab A-TESTFOOD0002", Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-TESTFOOD0002"}}},
+		{ride, decide.Decision{Category: 21, Label: "grab-auto", Clears: "attention-no-grab-receipt", Source: "grab A-TESTRIDE0001", Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-TESTRIDE0001"}}},
+		{food, decide.Decision{Category: 22, Label: "grab-auto", Clears: "attention-no-grab-receipt", Source: "grab A-TESTFOOD0002", Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-TESTFOOD0002"}}},
 	} {
 		if got, ok := ex.layer.Decide(c.tx); !ok || got != c.want {
 			t.Errorf("Decide(%d) = %+v, %t; want %+v", c.tx.ID, got, ok, c.want)
@@ -127,9 +127,9 @@ func TestALazadaCheckoutTakesTheOrderCategoryAndABillTheBillsCategory(t *testing
 		tx   ledger.Transaction
 		want decide.Decision
 	}{
-		{order, decide.Decision{Category: 40, Label: "auto-lazada", Source: "lazada 900000000000001+900000000000002",
+		{order, decide.Decision{Category: 40, Label: "auto-lazada", Clears: "attention-no-lazada-receipt", Source: "lazada 900000000000001+900000000000002",
 			Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "lazada", Receipt: "900000000000001+900000000000002"}}},
-		{water, decide.Decision{Category: 41, Label: "auto-lazada", Source: "lazada EZBI0000000001",
+		{water, decide.Decision{Category: 41, Label: "auto-lazada", Clears: "attention-no-lazada-receipt", Source: "lazada EZBI0000000001",
 			Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "lazada", Receipt: "EZBI0000000001"}}},
 	} {
 		if got, ok := ex.layer.Decide(c.tx); !ok || got != c.want {
@@ -163,7 +163,7 @@ func TestACreditTakesTheCategoryOfTheChargeThatPaidItsPartAsItsRefund(t *testing
 	} {
 		charge.State = c.state
 		ex := explainAll(t, receiptSession(t), ev, charge, refund)
-		want := decide.Decision{Category: c.category, Label: "auto-lazada", Source: "lazada refund of 1",
+		want := decide.Decision{Category: c.category, Label: "auto-lazada", Clears: "attention-no-lazada-purchase", Source: "lazada refund of 1",
 			Reason: categorize.Reason{Why: categorize.Refund, Merchant: "lazada", Receipt: "900000000000001"}}
 		if got, ok := ex.layer.Decide(refund); !ok || got != want || ex.paid[2] != 1 {
 			t.Errorf("%s: Decide = %+v, %t, paid %v; want %+v, paid by charge 1", c.name, got, ok, ex.paid, want)
@@ -248,7 +248,7 @@ func TestARefundOfAPartWhoseChargeIsOutsideTheLookbackNamesThePart(t *testing.T)
 	ev := evidence.Evidence{Receipts: []evidence.Receipt{receipt("lazada", "2026-09-20T07:05:00Z", "900000000000001", evidence.Order, 350)}}
 	old, refund := txn(1, "2026-09-20", -10.03, "LAZADA PAY"), txn(2, "2026-10-02", 10.03, "LAZADA PAY")
 	ex := explainAll(t, receiptSession(t), ev, old, refund)
-	want := decide.Decision{Category: 40, Label: "auto-lazada", Source: "lazada refund of 900000000000001",
+	want := decide.Decision{Category: 40, Label: "auto-lazada", Clears: "attention-no-lazada-purchase", Source: "lazada refund of 900000000000001",
 		Reason: categorize.Reason{Why: categorize.Refund, Merchant: "lazada", Receipt: "900000000000001"}}
 	if got, ok := ex.layer.Decide(refund); !ok || got != want || len(ex.paid) != 0 {
 		t.Errorf("Decide = %+v, %t, paid %v; want %+v and no paid entry", got, ok, ex.paid, want)

@@ -185,6 +185,25 @@ func TestFlaggedDecisionStaysInReview(t *testing.T) {
 	}
 }
 
+func TestADecisionDropsTheLabelItMakesUntrue(t *testing.T) {
+	explained := layerFunc(func(ledger.Transaction) (Decision, bool) {
+		return Decision{Category: 9, Label: "auto-x", Source: "x 1", Clears: "attention-no-x-receipt"}, true
+	})
+	for _, c := range []struct {
+		labels []string
+		want   ledger.State
+	}{
+		{[]string{"attention-no-x-receipt"}, ledger.State{Category: 9, Labels: []string{"auto-x"}}},
+		{[]string{"attention-no-x-receipt", "attention-large", "auto-x"}, ledger.State{Category: 9, NeedsReview: true, Labels: []string{"attention-large", "auto-x"}}},
+	} {
+		s := ledger.State{Category: 9, NeedsReview: true, Labels: c.labels}
+		p := Make([]ledger.Transaction{tx(1, "2026-02-01", s)}, []Layer{explained}, nil, since)
+		if len(p.Changes) != 1 || !p.Changes[0].After.Equal(c.want) {
+			t.Errorf("labels %v: changes = %+v; want one to %+v", c.labels, p.Changes, c.want)
+		}
+	}
+}
+
 func TestClearedFlaggedDecisionStaysCleared(t *testing.T) {
 	s := ledger.State{Category: 9, Labels: []string{"auto-rule", "attention-large"}}
 	p := Make([]ledger.Transaction{tx(1, "2026-02-01", s)}, []Layer{to9}, nil, since)

@@ -44,7 +44,7 @@ type explained struct {
 // messages that couldn't be read. A charge a receipt paid takes the category of the receipt's
 // kind. A credit takes the category of the charge that paid the part it refunds: the charge's
 // own when the user categorized it, else the part's kind's. A charge with no receipt and a
-// credit with no part to refund need the user.
+// credit with no part to refund need the user; one the evidence explains later sheds that label.
 func explain(ctx context.Context, s *session, ev evidence.Evidence, unreadable []evidence.Read, txs []ledger.Transaction, start time.Time) (explained, error) {
 	ex := explained{layer: receiptLayer{decided: map[int64]decide.Decision{}}, reasons: map[int64][]string{}, paid: map[int64]int64{}}
 	for _, u := range unreadable {
@@ -73,14 +73,14 @@ func explain(ctx context.Context, s *session, ev evidence.Evidence, unreadable [
 		paidBy := map[string]ledger.Transaction{} // by part
 		for _, p := range mt.Paid {
 			ref := p.Receipt.Ref()
-			ex.layer.decided[p.Charge.ID] = decide.Decision{Category: m.Categories[p.Receipt.Kind()], Label: m.Label, Source: m.Name + " " + ref,
+			ex.layer.decided[p.Charge.ID] = decide.Decision{Category: m.Categories[p.Receipt.Kind()], Label: m.Label, Clears: evidence.NoReceipt(m.Name), Source: m.Name + " " + ref,
 				Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: m.Name, Receipt: ref}}
 			for _, part := range p.Receipt.Parts {
 				paidBy[part.Ref] = p.Charge
 			}
 		}
 		for _, r := range mt.Refunds {
-			d := decide.Decision{Category: m.Categories[r.Part.Kind], Label: m.Label, Source: m.Name + " refund of " + r.Part.Ref,
+			d := decide.Decision{Category: m.Categories[r.Part.Kind], Label: m.Label, Clears: evidence.NoPurchase(m.Name), Source: m.Name + " refund of " + r.Part.Ref,
 				Reason: categorize.Reason{Why: categorize.Refund, Merchant: m.Name, Receipt: r.Part.Ref}}
 			if c, ok := paidBy[r.Part.Ref]; ok {
 				d.Source = fmt.Sprintf("%s refund of %d", m.Name, c.ID)

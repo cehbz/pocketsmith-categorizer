@@ -17,6 +17,7 @@ type Decision struct {
 	Label    string            // the deciding layer's label
 	Source   string            // what decided, such as a rule's key
 	Reason   categorize.Reason // why, for the run's report
+	Clears   string            // a label the decision makes untrue, dropped with it
 }
 
 // Layer decides a transaction's category or abstains.
@@ -60,7 +61,8 @@ func Make(txs []ledger.Transaction, layers []Layer, set map[int64]categorize.Cha
 		inScope := t.State.NeedsReview || owned && !t.Date.Before(since)
 		switch {
 		case inScope && decided:
-			after := ledger.State{Category: d.Category, NeedsReview: t.State.NeedsReview && t.State.Flagged(), Labels: append(t.State.UserLabels(), d.Label)}
+			labels := slices.DeleteFunc(t.State.UserLabels(), func(l string) bool { return l == d.Clears })
+			after := ledger.State{Category: d.Category, NeedsReview: t.State.NeedsReview && slices.ContainsFunc(labels, ledger.IsAttentionLabel), Labels: append(labels, d.Label)}
 			if !t.State.Equal(after) {
 				p.Changes = append(p.Changes, categorize.Change{Charge: t.ID, Before: t.State, After: after, Source: d.Source, Reason: d.Reason})
 			}
