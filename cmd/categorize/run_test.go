@@ -781,3 +781,67 @@ func TestALearnedRuleFromOneCategorizationSaysSo(t *testing.T) {
 		t.Errorf("additions = %+v, want one under %q", got, want)
 	}
 }
+
+func TestAnOverrideOfARuleTheUserEditedSinceIsAnOverriddenDecision(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l, path := ruleRun(t, acmeRule)
+	first(t, newRunner, s)
+	edited := acmeRule + "max = 100\n" // the user's edit changes the rule's key
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	if s.rules, err = rules.Load(path, s.rulesFile.(rules.File).Categories); err != nil {
+		t.Fatal(err)
+	}
+	late := l.txs[2]
+	late.State.Category = 9
+	l.txs[2] = late
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != edited {
+		t.Errorf("rules file =\n%s\nwant it as the user left it", b)
+	}
+	if got := out.String(); !strings.Contains(got, "Overridden Decisions") || strings.Contains(got, "New Rules to Review") {
+		t.Errorf("report:\n%s\nwant the override under Overridden Decisions", got)
+	}
+}
+
+func TestARunAfterAnAmendmentWithNothingNewLeavesTheRulesFileAlone(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l, path := ruleRun(t, acmeRule)
+	first(t, newRunner, s)
+	late := l.txs[2]
+	late.State.Category = 9
+	l.txs[2] = late
+	first(t, newRunner, s)
+	amended, _ := os.ReadFile(path)
+	old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	l.updates = 0
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != string(amended) || !info.ModTime().Equal(old) {
+		t.Errorf("rules file rewritten (modified %v) =\n%s\nwant\n%s", info.ModTime(), b, amended)
+	}
+	if l.updates != 0 || strings.Contains(out.String(), "New Rules to Review") {
+		t.Errorf("%d updates; report:\n%s\nwant no updates and no New Rules to Review", l.updates, out.String())
+	}
+}
+
+func TestALearnedRuleInACategoryWithoutATitleIsDropped(t *testing.T) {
+	p := learn.Proposal{Key: "TEA HOUSE", Category: 7, Count: 3, Pattern: learn.Pattern("TEA HOUSE")}
+	if got := additions([]learn.Proposal{p}, map[ledger.CategoryID]string{5: "Food"}, mustParse("2026-11-03")); len(got) != 0 {
+		t.Errorf("additions = %+v, want none", got)
+	}
+}

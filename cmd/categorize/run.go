@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
@@ -139,7 +140,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	threshold, found := learn.Threshold(trials, precision, minEvaluated)
 	var proposals []learn.Proposal
 	if found {
-		proposals = learn.Propose(txs, threshold, s.rules.Covers)
+		proposals = slices.DeleteFunc(learn.Propose(txs, threshold, s.rules.Covers), func(p learn.Proposal) bool { return !titled(p, s.titles) })
 	}
 	if len(revision.Edits) > 0 || len(proposals) > 0 {
 		if s.rules, err = s.rulesFile.Revise(revision.Edits, additions(proposals, s.titles, s.today)); err != nil {
@@ -193,13 +194,14 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	corrections := plan.Corrections[:applied-decisions-flags]
 	unwritten := changes[applied:]
 	listed, applyErr := listTrips(applyErr, tripStore, store, runID, list, written, listing)
+	amended := map[int64]bool{} // the overrides that amended a rule, which New Rules to Review shows
+	for _, a := range revision.Amended {
+		amended[a.Charge.ID] = true
+	}
 	var amendments []categorize.Change
 	for _, c := range corrections {
 		prev, ok := last[c.Charge]
-		if !ok || prev.Source == "" || shown.Seen(amendmentKey(c.Charge, prev.Source)) {
-			continue
-		}
-		if _, isRule := rules.KeyName(prev.Source); isRule {
+		if !ok || prev.Source == "" || amended[c.Charge] || shown.Seen(amendmentKey(c.Charge, prev.Source)) {
 			continue
 		}
 		amendments = append(amendments, categorize.Change{Charge: c.Charge, Before: prev.After, After: c.After, Source: prev.Source})
@@ -255,10 +257,14 @@ func (r runner) deliver(ctx context.Context, out io.Writer, rep report.Run) erro
 	return r.notify.report(ctx, out, rep)
 }
 
-// additions are the rules learned from proposals, each under a comment naming its evidence.
+// additions are the rules learned from proposals, each under a comment naming its evidence;
+// a proposal whose category has no title is dropped.
 func additions(proposals []learn.Proposal, titles map[ledger.CategoryID]string, today time.Time) []rules.Addition {
 	var out []rules.Addition
 	for _, p := range proposals {
+		if !titled(p, titles) {
+			continue
+		}
 		noun := "categorizations"
 		if p.Count == 1 {
 			noun = "categorization"
@@ -269,6 +275,11 @@ func additions(proposals []learn.Proposal, titles map[ledger.CategoryID]string, 
 		})
 	}
 	return out
+}
+
+// titled reports whether p's category has a title, which a rule needs.
+func titled(p learn.Proposal, titles map[ledger.CategoryID]string) bool {
+	return titles[p.Category] != ""
 }
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }

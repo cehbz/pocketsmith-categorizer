@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -55,17 +56,26 @@ type file struct {
 
 // Load reads a rules file and checks every rule, resolving category titles against categories.
 func Load(path string, categories []ledger.Category) (Rules, error) {
-	var f file
-	md, err := toml.DecodeFile(path, &f)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("rules %s: %w", path, err)
+	}
+	return parse(string(b), path, categories)
+}
+
+// parse is Load's work on text, which errors name as name.
+func parse(text, name string, categories []ledger.Category) (Rules, error) {
+	var f file
+	md, err := toml.Decode(text, &f)
+	if err != nil {
+		return nil, fmt.Errorf("rules %s: %w", name, err)
 	}
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		keys := make([]string, len(undecoded))
 		for i, k := range undecoded {
 			keys[i] = k.String()
 		}
-		return nil, fmt.Errorf("rules %s: unknown keys %s", path, strings.Join(keys, ", "))
+		return nil, fmt.Errorf("rules %s: unknown keys %s", name, strings.Join(keys, ", "))
 	}
 	ids := make(map[string]ledger.CategoryID, len(categories))
 	for _, c := range categories {
@@ -73,7 +83,7 @@ func Load(path string, categories []ledger.Category) (Rules, error) {
 	}
 	for i := range f.Rule {
 		if err := f.Rule[i].check(ids); err != nil {
-			return nil, fmt.Errorf("rules %s: rule %d: %w", path, i+1, err)
+			return nil, fmt.Errorf("rules %s: rule %d: %w", name, i+1, err)
 		}
 	}
 	return Rules(f.Rule), nil
@@ -229,8 +239,8 @@ type Stats struct {
 	Disagree []ledger.Transaction
 }
 
-// Replay compares each of the user's categorizations in txs with the first rule that matches
-// it, returning one entry per rule that matched any, in rule order.
+// Replay compares each of the user's categorizations in txs with the first rule that isn't
+// rejected and that matches it, returning one entry per rule that matched any, in rule order.
 func (rs Rules) Replay(txs []ledger.Transaction) []Stats {
 	stats := make([]Stats, len(rs))
 	for i, r := range rs {
@@ -241,7 +251,7 @@ func (rs Rules) Replay(txs []ledger.Transaction) []Stats {
 			continue
 		}
 		for i, r := range rs {
-			if !r.Matches(t) {
+			if r.State == Rejected || !r.Matches(t) {
 				continue
 			}
 			stats[i].Matches++

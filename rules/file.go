@@ -43,9 +43,17 @@ func (f File) Revise(edits []Edit, additions []Addition) (Rules, error) {
 	if err != nil {
 		return nil, err
 	}
-	text, err := revised(string(old), edits, additions)
+	was, err := parse(string(old), f.Path, f.Categories)
+	if err != nil {
+		return nil, err
+	}
+	text, err := revised(string(old), len(was), edits, additions)
 	if err != nil {
 		return nil, fmt.Errorf("rules %s: %w", f.Path, err)
+	}
+	rs, err := parse(text, f.Path+" as revised", f.Categories)
+	if err != nil {
+		return nil, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(f.Path), ".rules-*.toml")
 	if err != nil {
@@ -56,14 +64,14 @@ func (f File) Revise(edits []Edit, additions []Addition) (Rules, error) {
 		tmp.Close()
 		return nil, err
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return nil, err
+	}
 	if err := tmp.Close(); err != nil {
 		return nil, err
 	}
 	if err := os.Chmod(tmp.Name(), info.Mode().Perm()); err != nil {
-		return nil, err
-	}
-	rs, err := Load(tmp.Name(), f.Categories)
-	if err != nil {
 		return nil, err
 	}
 	if err := os.Rename(tmp.Name(), f.Path); err != nil {
@@ -72,21 +80,27 @@ func (f File) Revise(edits []Edit, additions []Addition) (Rules, error) {
 	return rs, nil
 }
 
-var header = regexp.MustCompile(`^\s*\[\[rule\]\]\s*(#.*)?$`)
+var header = regexp.MustCompile(`^\s*\[\[rule\]\]\s*(#.*)?\s*$`)
 
-// revised is text with edits made and additions appended.
-func revised(text string, edits []Edit, additions []Addition) (string, error) {
+// revised is text, which holds n rules, with edits made and additions appended; it errors
+// when it finds other than n rule headers. Appended fields take the indentation of the
+// text's last field line.
+func revised(text string, n int, edits []Edit, additions []Addition) (string, error) {
 	lines := strings.SplitAfter(text, "\n")
 	if lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	for _, e := range edits {
-		var starts []int
-		for i, l := range lines {
-			if header.MatchString(l) {
-				starts = append(starts, i)
-			}
+	if h := len(headers(lines)); h != n {
+		return "", fmt.Errorf("%d rules but %d [[rule]] lines", n, h)
+	}
+	indent := ""
+	for _, l := range lines {
+		if m := fieldLine.FindStringSubmatch(l); m != nil {
+			indent = m[1]
 		}
+	}
+	for _, e := range edits {
+		starts := headers(lines)
 		if e.Index < 0 || e.Index >= len(starts) {
 			return "", fmt.Errorf("no rule %d", e.Index+1)
 		}
@@ -105,12 +119,23 @@ func revised(text string, edits []Edit, additions []Addition) (string, error) {
 		out += "\n"
 	}
 	for _, a := range additions {
-		out += "\n# " + a.Comment + "\n[[rule]]\npayee = " + literal(a.Rule.Payee) + "\ncategory = " + quote(a.Rule.Category) + "\n"
+		out += "\n# " + a.Comment + "\n[[rule]]\n" + indent + "payee = " + literal(a.Rule.Payee) + "\n" + indent + "category = " + quote(a.Rule.Category) + "\n"
 		if a.Rule.State != "" {
-			out += "state = " + quote(a.Rule.State) + "\n"
+			out += indent + "state = " + quote(a.Rule.State) + "\n"
 		}
 	}
 	return out, nil
+}
+
+// headers are the indexes of the rule header lines among lines.
+func headers(lines []string) []int {
+	var starts []int
+	for i, l := range lines {
+		if header.MatchString(l) {
+			starts = append(starts, i)
+		}
+	}
+	return starts
 }
 
 // optional is value when present, else empty, which removes the field.
@@ -121,9 +146,9 @@ func optional(present bool, value string) string {
 	return value
 }
 
-// set gives field value in a rule's block, rewriting the line that holds it with the block's
-// indentation, adding it after the block's last field when it has none, or removing it when
-// value is empty.
+// set gives field value in a rule's block, rewriting the line that holds it with that line's
+// own indentation, adding it after the block's last field with that field's indentation when
+// it has none, or removing it when value is empty.
 func set(block []string, field, value string) []string {
 	re := regexp.MustCompile(`^(\s*)` + field + `\s*=`)
 	last, indent := -1, ""

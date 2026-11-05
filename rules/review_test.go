@@ -111,3 +111,13 @@ func TestOfTwoRulesWithOneKeyTheFirstIsAmended(t *testing.T) {
 }
 
 func pair(t ledger.Transaction, c categorize.Change) []any { return []any{t, c} }
+
+func TestARejectedRuleStaysRejected(t *testing.T) {
+	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)acme\"\ncategory = \"Phone\"\nstate = \"rejected\"\n")
+	// charges the rule decided before the user rejected it
+	overridden := pair(decided(rs[0], 1, "2026-10-05", filed(3, false), filed(5, false)))
+	accepted := pair(decided(rs[0], 2, "2026-10-06", filed(3, true), filed(3, false)))
+	if v := reviewed(rs, append(overridden, accepted...)...); len(v.Edits)+len(v.Amended) != 0 {
+		t.Errorf("revision = %+v; want none", v)
+	}
+}

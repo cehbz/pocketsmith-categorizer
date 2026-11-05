@@ -160,6 +160,14 @@ func TestReplayCountsAgreementWithTheUser(t *testing.T) {
 	}
 }
 
+func TestReplaySkipsRejectedRules(t *testing.T) {
+	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)acme\"\ncategory = \"Food\"\nstate = \"rejected\"\n[[rule]]\npayee = \"(?i)acme\"\ncategory = \"Phone\"\n")
+	st := rs.Replay([]ledger.Transaction{tx("ACME 1", "Card", -5, ledger.State{Category: 3})})
+	if len(st) != 1 || st[0].Rule.Category != "Phone" || st[0].Matches != 1 || st[0].Agree != 1 {
+		t.Errorf("Replay = %+v; want the Phone rule agreeing once", st)
+	}
+}
+
 func TestADecisionNamesItsRule(t *testing.T) {
 	rs := mustLoad(t, "[[rule]]\npayee = \"(?i)fitapp\"\ncategory = \"Food\"\n")
 	d, _ := rs.Decide(tx("GOOGLE *Fitapp", "Card", -5, ledger.State{}))

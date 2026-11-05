@@ -31,7 +31,8 @@ type Revision struct {
 // charge's date, or has no start date when the charge carries the apply-all label; of several
 // overrides of a rule, the latest-dated charge's decides. An acceptance, a tentative rule's
 // charge the user took out of review in the rule's category, confirms the rule unless an
-// override amends it.
+// override amends it. A rejected rule stays rejected: its overrides and acceptances change
+// nothing.
 func (rs Rules) Review(txs []ledger.Transaction, last map[int64]categorize.Change, titles map[ledger.CategoryID]string) Revision {
 	byKey := map[string]int{}
 	for i, r := range rs {
@@ -47,7 +48,7 @@ func (rs Rules) Review(txs []ledger.Transaction, last map[int64]categorize.Chang
 			continue
 		}
 		i, ok := byKey[rec.Source]
-		if !ok {
+		if !ok || rs[i].State == Rejected {
 			continue
 		}
 		switch {

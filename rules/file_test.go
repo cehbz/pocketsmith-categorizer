@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,9 +92,9 @@ func TestReviseAppendsARuleUnderItsComment(t *testing.T) {
 		want := fileText + `
 # added 2026-11-05 from 3 categorizations of TEA HOUSE
 [[rule]]
-payee = '(?i)\bTEA[^A-Za-z]*HOUSE\b'
-category = "Food"
-state = "tentative"
+  payee = '(?i)\bTEA[^A-Za-z]*HOUSE\b'
+  category = "Food"
+  state = "tentative"
 `
 		if got != want {
 			t.Errorf("file =\n%s\nwant\n%s", got, want)
@@ -111,5 +112,52 @@ func TestARevisionThatDoesntLoadLeavesTheFileAsItWas(t *testing.T) {
 	}
 	if got != fileText {
 		t.Errorf("file =\n%s\nwant it as it was", got)
+	}
+}
+
+func TestReviseEditsTheRuleAfterAHeaderWithAComment(t *testing.T) {
+	text := "[[rule]]   # the phone company\npayee = '(?i)^acme'\ncategory = \"Phone\"\n\n[[rule]]\npayee = '(?i)^atm'\ncategory = \"Cash\"\n"
+	got, _, err := revise(t, text, []Edit{{Index: 0, Rule: Rule{Category: "Food"}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.Replace(text, "Phone", "Food", 1); got != want {
+		t.Errorf("file =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestReviseRefusesAFileWhoseRuleHeadersItCantFind(t *testing.T) {
+	text := "[[ rule ]]\npayee = '(?i)^acme'\ncategory = \"Phone\"\n\n[[rule]]\npayee = '(?i)^atm'\ncategory = \"Cash\"\n"
+	if _, err := load(t, text); err != nil {
+		t.Fatalf("the file doesn't load: %v", err)
+	}
+	got, _, err := revise(t, text, []Edit{{Index: 0, Rule: Rule{Category: "Food"}}}, nil)
+	if err == nil {
+		t.Error("Revise succeeded")
+	}
+	if got != text {
+		t.Errorf("file =\n%s\nwant it as it was", got)
+	}
+}
+
+func TestReviseAppendsAnUnindentedRuleToAFileWithoutIndentedFields(t *testing.T) {
+	text := "[[rule]]\npayee = '(?i)^acme'\ncategory = \"Phone\"\n"
+	got, _, err := revise(t, text, nil, []Addition{{Comment: "added", Rule: Rule{Payee: "(?i)tea", Category: "Food", State: Tentative}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := text + "\n# added\n[[rule]]\npayee = '(?i)tea'\ncategory = \"Food\"\nstate = \"tentative\"\n"; got != want {
+		t.Errorf("file =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestARevisionThatDoesntLoadNamesTheRulesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rules.toml")
+	if err := os.WriteFile(path, []byte(fileText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := File{Path: path, Categories: categories}.Revise([]Edit{{Index: 0, Rule: Rule{Category: "Nonexistent"}}}, nil)
+	if err == nil || !strings.Contains(err.Error(), path) || strings.Contains(err.Error(), ".rules-") {
+		t.Errorf("err = %v; want it to name %s and not a temp file", err, path)
 	}
 }
