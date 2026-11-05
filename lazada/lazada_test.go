@@ -88,33 +88,35 @@ func TestABillLazadaPaidIsItsUtilitysKindWithLazadasFee(t *testing.T) {
 }
 
 func TestATaxInvoiceNamingNoOrderIsABillWithoutAnAmount(t *testing.T) {
-	subject := "ใบกำกับภาษีอิเล็กทรอนิกส์ Lazada" // bai kam kap phasi elekthronik: "electronic tax invoice"
-	got := read(t, evidence.Message{ID: "m1", Subject: subject, Text: "Lazada e-Tax Invoice"})
+	// ใบกำกับภาษีอิเล็กทรอนิกส์: bai kam kap phasi elekthronik, "electronic tax invoice"
 	want := evidence.Evidence{Receipts: []evidence.Receipt{{At: received, Parts: []evidence.Part{{Ref: "tax invoice", Kind: evidence.Bill}}, Unpriced: true}}}
+	for _, subject := range []string{"E-Invoice for THINV2026000000000001 - Test Buyer", "e-invoice for THINV2026000000000001 - Test Buyer"} {
+		got := read(t, evidence.Message{ID: "m1", From: "invoicing@example.lazada.com", Subject: subject, Text: "ใบกำกับภาษีอิเล็กทรอนิกส์ Lazada e-Tax Invoice"})
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%q: Read = %+v\nwant %+v", subject, got, want)
+		}
+	}
+}
+
+// paidDecomposed is ยอดชำระ (yot chamra, "amount paid") with the sara am of ชำ (cham) as U+0E4D
+// nikhahit then U+0E32 sara aa, not the composed U+0E33; the two render alike.
+const paidDecomposed = "\u0e22\u0e2d\u0e14\u0e0a\u0e4d\u0e32\u0e23\u0e30"
+
+func TestABillSpelledWithADecomposedSaraAmReadsAlike(t *testing.T) {
+	text := strings.Replace(fmt.Sprintf(billText, "Example Telecom"), "ยอดชำระ", paidDecomposed, 1)
+	got := read(t, evidence.Message{ID: "m1", From: "easybills@2c2p.com", Subject: "easyBills", Text: text})
+	want := evidence.Evidence{Receipts: []evidence.Receipt{{At: received, Parts: []evidence.Part{{Ref: "EZBI000000000000001", Kind: evidence.Bill, THB: 1812.5}}, Fee: 5.35}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Read = %+v\nwant %+v", got, want)
 	}
 }
 
-// taxInvoiceDecomposed is ใบกำกับภาษีอิเล็กทรอนิกส์ (bai kam kap phasi elekthronik, "electronic
-// tax invoice") as Lazada's mail spells it: the sara am of กำ (kam) as U+0E4D nikhahit then U+0E32
-// sara aa, not the composed U+0E33; the two render alike.
-const taxInvoiceDecomposed = "\u0e43\u0e1a\u0e01\u0e4d\u0e32\u0e01\u0e31\u0e1a\u0e20\u0e32\u0e29\u0e35\u0e2d\u0e34\u0e40\u0e25\u0e47\u0e01\u0e17\u0e23\u0e2d\u0e19\u0e34\u0e01\u0e2a\u0e4c"
-
-func TestATaxInvoiceSpelledWithADecomposedSaraAmReadsAlike(t *testing.T) {
-	want := evidence.Evidence{Receipts: []evidence.Receipt{{At: received, Parts: []evidence.Part{{Ref: "tax invoice", Kind: evidence.Bill}}, Unpriced: true}}}
-	if got := read(t, evidence.Message{ID: "m1", Subject: taxInvoiceDecomposed + " Lazada", Text: "Lazada e-Tax Invoice"}); !reflect.DeepEqual(got, want) {
-		t.Errorf("subject: Read = %+v\nwant %+v", got, want)
-	}
-	if got := read(t, evidence.Message{ID: "m1", Subject: taxInvoiceDecomposed + " Lazada", Text: "Order #900000000000001"}); !reflect.DeepEqual(got, evidence.Evidence{}) {
-		t.Errorf("an order's invoice: Read = %+v; want nothing", got)
-	}
-}
-
 func TestMessagesThatSayNothingOfAPurchaseReadAsNothing(t *testing.T) {
 	for name, m := range map[string]evidence.Message{
-		// ใบกำกับภาษีอิเล็กทรอนิกส์: bai kam kap phasi elekthronik, "electronic tax invoice"
-		"a tax invoice for an order": {Subject: "ใบกำกับภาษีอิเล็กทรอนิกส์ Lazada", Text: "Order #900000000000001"},
+		"a tax invoice for an order":         {Subject: "E-invoice for order 900000000000001", Text: "Lazada e-Tax Invoice"},
+		"an invoice naming its order inside": {Subject: "E-Invoice for THINV2026000000000001 - Test Buyer", Text: "Order #900000000000001"},
+		"a survey":                           {Subject: "How was your recent purchase?", Text: "Rate your experience"},
+		"a promotion":                        {Subject: "11.11 Mega Sale starts now", Text: "Vouchers up to ฿1,111 off"},
 		// การไฟฟ้าส่วนภูมิภาค: kan fai fa suan phumiphak, "Provincial Electricity Authority"
 		"a bill Lazada didn't pay": {From: "easybills@2c2p.com", Text: fmt.Sprintf(strings.Replace(billText, "Lazada_utilPayment", "CounterService", 1), "การไฟฟ้าส่วนภูมิภาค")},
 	} {
@@ -169,7 +171,7 @@ func TestAnUnreadableMessageSaysWhy(t *testing.T) {
 
 func TestLazadaIsAMerchantOfOrdersAndBills(t *testing.T) {
 	m := Merchant()
-	if m.Name != "lazada" || m.Label != "auto-lazada" || !reflect.DeepEqual(m.Queries, Queries) || m.Tolerance != 0.01 || m.Lag != 1 ||
+	if m.Name != "lazada" || m.Label != "auto-lazada" || !reflect.DeepEqual(m.Queries, []string{"from:lazada", "from:easybills@2c2p.com"}) || m.Tolerance != 0.01 || m.Lag != 1 ||
 		!reflect.DeepEqual(m.Kinds, []evidence.Kind{evidence.Order, evidence.Electricity, evidence.Water, evidence.Bill}) || m.Reader == nil {
 		t.Errorf("Merchant() = %+v", m)
 	}

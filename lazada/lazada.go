@@ -14,18 +14,9 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/evidence"
 )
 
-// Queries find Lazada's order confirmations in English and in Thai, its cancellations, its
-// deliveries, its tax invoices and easyBills' bill receipts.
-var Queries = []string{
-	`from:lazada subject:"We have received your order"`,
-	`from:lazada "ยอดรวมทั้งหมด"`, // yot ruam thang mot: "grand total", the Thai template's
-	`from:lazada subject:(cancellation OR cancelled OR cancelling)`,
-	`from:lazada subject:("successfully shipped" OR "has been delivered")`,
-	// bai kam kap phasi elekthronik: "electronic tax invoice", spelled with the composed sara am
-	// and with the decomposed one Lazada's mail uses (they render alike)
-	`from:lazada subject:("ใบกำกับภาษีอิเล็กทรอนิกส์" OR "ใบกํากับภาษีอิเล็กทรอนิกส์")`,
-	`from:easybills@2c2p.com`,
-}
+// Queries find all of Lazada's mail, from any of its senders, and easyBills' bill receipts;
+// Read tells what each message is.
+var Queries = []string{`from:lazada`, `from:easybills@2c2p.com`}
 
 // Label marks the charges Lazada's receipts decided.
 const Label = "auto-lazada"
@@ -69,6 +60,10 @@ var (
 	billRef   = regexp.MustCompile(`หมายเลขอ้างอิง\s*(EZBI[0-9A-Z]+)`)
 	cancelled = regexp.MustCompile(`(?i)cancel`)
 	delivered = regexp.MustCompile(`(?i)successfully shipped|has been delivered`)
+	invoice   = regexp.MustCompile(`(?i)^E-Invoice for `)
+	// confirmed is an order confirmation: the English template's subject, or the Thai
+	// template's ยอดรวมทั้งหมด (yot ruam thang mot, "grand total").
+	confirmed = regexp.MustCompile(`We have received your order|ยอดรวมทั้งหมด`)
 )
 
 // thaiMonths are the Thai months' names, full and abbreviated, by month.
@@ -118,28 +113,23 @@ var billers = []struct {
 	{"การประปาส่วนภูมิภาค", evidence.Water},       // kan prapa suan phumiphak: Provincial Waterworks Authority
 }
 
-// taxInvoice is ใบกำกับภาษีอิเล็กทรอนิกส์ (bai kam kap phasi elekthronik, "electronic tax
-// invoice") with the sara am of กำ (kam) composed, U+0E33. Lazada's mail spells it decomposed,
-// U+0E4D nikhahit then U+0E32 sara aa; the two render alike, so Read folds the decomposed
-// spelling into the composed one.
-const taxInvoice = "ใบกำกับภาษีอิเล็กทรอนิกส์"
-
-// composeSaraAm folds the decomposed sara am (U+0E4D U+0E32) into the composed one (U+0E33).
+// composeSaraAm folds the decomposed sara am (U+0E4D nikhahit then U+0E32 sara aa), which
+// Lazada's mail uses, into the composed one (U+0E33) the patterns spell; the two render alike.
 func composeSaraAm(s string) string { return strings.ReplaceAll(s, "\u0e4d\u0e32", "\u0e33") }
 
 // Reader reads Lazada's mail.
 type Reader struct{}
 
 // Read reads a message by what it is: an easyBills receipt for a bill Lazada paid, a tax
-// invoice naming no order (a bill without an amount), a cancellation, a delivery, else an
-// order confirmation. An easyBills receipt Lazada didn't pay and a tax invoice for an order
-// say nothing.
+// invoice naming no order (a bill without an amount), a cancellation, a delivery or an order
+// confirmation. An easyBills receipt Lazada didn't pay, a tax invoice for an order and any
+// other mail say nothing.
 func (Reader) Read(m evidence.Message) (evidence.Evidence, error) {
 	m.Subject, m.Text = composeSaraAm(m.Subject), composeSaraAm(m.Text)
 	switch {
 	case strings.EqualFold(m.From, "easybills@2c2p.com"):
 		return bill(m)
-	case strings.Contains(m.Subject, taxInvoice):
+	case invoice.MatchString(m.Subject):
 		if orderID.MatchString(m.Subject + " " + m.Text) {
 			return evidence.Evidence{}, nil
 		}
@@ -157,8 +147,10 @@ func (Reader) Read(m evidence.Message) (evidence.Evidence, error) {
 			return evidence.Evidence{}, err
 		}
 		return evidence.Evidence{Deliveries: []evidence.Delivery{{Ref: id, At: m.Received}}}, nil
+	case confirmed.MatchString(m.Subject + " " + m.Text):
+		return order(m)
 	}
-	return order(m)
+	return evidence.Evidence{}, nil
 }
 
 // ref is the order a message names: in its subject, else after a # in its text, else
