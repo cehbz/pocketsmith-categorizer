@@ -40,6 +40,7 @@ type Placer struct {
 	Origins   map[int64]ledger.State // each placed transaction's state before the trips layer changed it
 	Corrected map[int64]bool         // transactions the user recategorized since the categorizer set them
 	From      time.Time              // the placement start: transactions dated before it are history only
+	Paid      map[int64]int64        // by credit, the charge that paid what it refunds, as a merchant's evidence says
 }
 
 // Placing is what placing decided.
@@ -139,9 +140,12 @@ func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	}
 }
 
-// staysHome reports whether t's home category is one that stays home: the category the home
-// layers decided, or, for a charge the trips layer placed, its origin's.
+// staysHome reports whether t's payee stays home, or its home category does: the category the
+// home layers decided, or, for a charge the trips layer placed, its origin's.
 func (w *placing) staysHome(t Transaction) bool {
+	if slices.Contains(w.Settings.HomePayees, t.Payee) {
+		return true
+	}
 	category := t.Home.Category
 	if origin, ok := w.Origins[t.ID]; ok && t.Home.HasLabel(Label) {
 		category = origin.Category
@@ -170,18 +174,21 @@ func (w *placing) claimed(t Transaction) bool {
 	return slices.ContainsFunc(t.State.Labels, w.List.Named) && (t.State.HasLabel(Booking) || !t.State.HasLabel(Label))
 }
 
-// refunds places each credit that follows a trip charge or a booking from its merchant: it
-// takes the charge's category and trip labels as the charge stands. A refund not within 3%
-// of its charge's amount is unsure. An ATM fee rebate follows its account's latest
-// withdrawal instead, and is never unsure.
+// refunds places each credit that follows a trip charge or a booking: it takes the charge's
+// category and trip labels as the charge stands. A credit follows the charge that paid what it
+// refunds when a merchant's evidence says which, else its merchant's charge. A refund not
+// within 3% of its merchant's charge's amount is unsure. An ATM fee rebate follows its
+// account's latest withdrawal instead, and is never unsure.
 func (w *placing) refunds(txs []Transaction) {
 	names := namesOf(txs)
 	charges := map[string][]Transaction{}     // by merchant
 	withdrawals := map[string][]Transaction{} // by account
+	byID := map[int64]Transaction{}
 	for _, t := range txs {
 		if !t.Charge() {
 			continue
 		}
+		byID[t.ID] = t
 		charges[names.merchant(t)] = append(charges[names.merchant(t)], t)
 		if w.Settings.IsCash(t) {
 			withdrawals[t.Account.Name] = append(withdrawals[t.Account.Name], t)
@@ -202,6 +209,11 @@ func (w *placing) refunds(txs []Transaction) {
 			continue
 		}
 		c, within, ok := follows(t, charges[names.merchant(t)])
+		if id, known := w.Paid[t.ID]; known {
+			if paid, found := byID[id]; found {
+				c, within, ok = paid, true, true
+			}
+		}
 		if w.Settings.IsCash(t) {
 			c, ok = latest(t, withdrawals[t.Account.Name])
 			within = true

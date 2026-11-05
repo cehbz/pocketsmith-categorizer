@@ -152,6 +152,23 @@ func TestAChargeInAStayHomeCategoryOnATripStaysAndOnePlacedEarlierReturnsToItsOr
 	}
 }
 
+func TestAStayHomePayeesChargeOnATripStaysAndOnePlacedEarlierReturnsToItsOrigin(t *testing.T) {
+	pl := placer(abroad)
+	pl.Settings.HomePayees = []string{"LAZADA PAY"}
+	pl.Origins = map[int64]ledger.State{2: {Category: 40, Labels: []string{"auto-lazada"}}}
+	p := pl.Place([]Transaction{
+		online(1, "2026-10-10", -13, "LAZADA PAY", "", ledger.State{Category: 40, Labels: []string{"auto-lazada"}}),
+		online(2, "2026-10-12", -20, "LAZADA PAY", "", ledger.State{Category: 104, Labels: []string{Label, "trip-abroad"}}), // placed by an earlier run
+		online(3, "2026-10-14", 13, "LAZADA PAY", "", ledger.State{Category: 40, Labels: []string{"auto-lazada"}}),          // the first's refund
+	})
+	notPlaced(t, p, 1)
+	wantState(t, p, 2, ledger.State{Category: 40, Labels: []string{"auto-lazada"}})
+	notPlaced(t, p, 3)
+	if len(p.Reasons) != 0 {
+		t.Errorf("reasons = %v, want none", p.Reasons)
+	}
+}
+
 func TestAStayHomeChargeDoesntMakeTheTripHomeActive(t *testing.T) {
 	p := stayHome(abroad).Place([]Transaction{
 		online(1, "2026-10-10", -40, "TELCO", "4814", ledger.State{Category: 30}),
@@ -282,6 +299,22 @@ func TestARefundFollowsTheChargeItIsCloseTo(t *testing.T) {
 	wantState(t, p, 3, ledger.State{Category: 102, Labels: []string{Label, Booking}})
 	if c, _ := placed(p, 3); c.Source != "trips: trip-booking refund of 1" || len(p.Reasons[3]) > 0 {
 		t.Errorf("refund source %q, reasons %v; want the first booking's, unflagged", c.Source, p.Reasons[3])
+	}
+}
+
+func TestARefundFollowsTheChargeThatPaidWhatItRefunds(t *testing.T) {
+	txs := []Transaction{
+		txn(1, "2026-10-10", -12, "NOODLES", "5812", ledger.State{Category: 5}), // on the trip
+		txn(2, "2026-11-01", -12, "NOODLES", "5812", ledger.State{Category: 5}), // after it
+		txn(3, "2026-11-05", 12, "NOODLES", "5812", ledger.State{Category: 5}),  // the first's refund
+	}
+	notPlaced(t, placer(abroad).Place(txs), 3) // by amount, it follows the later charge
+	pl := placer(abroad)
+	pl.Paid = map[int64]int64{3: 1}
+	p := pl.Place(txs)
+	wantState(t, p, 3, ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})
+	if c, _ := placed(p, 3); c.Source != "trips: trip-abroad refund of 1" {
+		t.Errorf("refund source %q; want trips: trip-abroad refund of 1", c.Source)
 	}
 }
 

@@ -17,6 +17,7 @@ type Settings struct {
 	Home        Home                // where the household lives
 	Everywhere  []string            // merchants that are always everywhere merchants (Grab), as word prefixes of the merchant
 	StayHome    []ledger.CategoryID // home categories never trip spending: bills and care paid while away
+	HomePayees  []string            // payees whose charges are never trip spending: a merchant's that stays home
 	Start       time.Time           // the attention start: trips ending before it are back-filled unflagged
 	CashAccount string              // the account cash is withdrawn from
 }

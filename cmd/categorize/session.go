@@ -88,6 +88,9 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 			return nil, err
 		}
 		merchants = append(merchants, resolved)
+		if resolved.StayHome {
+			tripSet.HomePayees = append(tripSet.HomePayees, resolved.Payees...)
+		}
 	}
 	card, err := openCard(ctx, cfg.Plaid)
 	if err != nil {

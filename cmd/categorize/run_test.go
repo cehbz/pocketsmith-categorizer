@@ -485,6 +485,25 @@ func TestAnEvidenceStoreThatCantBeSavedFailsTheRunBeforeAnythingIsApplied(t *tes
 	}
 }
 
+func TestALazadaOrderOnATripIsntTripSpending(t *testing.T) {
+	newRunner, _ := runners(t)
+	s, l := tripRun(t)
+	s.merchants = []evidence.Merchant{testGrab(), testLazada()}
+	s.trips.HomePayees = []string{"LAZADA PAY"}
+	s.rates = rates(t, "35")
+	s.receipts = &fakeMailbox{messages: map[string][]gmail.Message{lazada.Queries[0]: {{ID: "m1", Received: at("2026-10-06T07:06:00Z"),
+		Subject: "We have received your order No 900000000000001",
+		Text:    "Your Order #900000000000001 placed on October 6, 2026 at 14:05 via Credit or Debit Card has been confirmed. Total (VAT included) ฿460.00"}}}}
+	l.txs[11] = ledger.Transaction{ID: 11, Date: mustParse("2026-10-06"), Amount: -13.18, Payee: "LAZADA PAY", Account: ledger.Account{Name: "Card"}, State: ledger.State{NeedsReview: true}}
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if got := l.txs[11].State; got.Category != 40 || !got.HasLabel("auto-lazada") || got.HasLabel(trips.Label) {
+		t.Errorf("order's charge on the trip %+v; want the order category, off the trip\n%s", got, out.String())
+	}
+}
+
 func TestAGrabChargeTheUserCategorizedIsOnlySuggestedTheReceiptsCategory(t *testing.T) {
 	newRunner, _ := runners(t)
 	s, l := grabRun(t)
