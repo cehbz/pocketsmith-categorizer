@@ -5,44 +5,48 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
-	"github.com/cehbz/pocketsmith-categorizer/categorize"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
 
-// DefaultLabel marks the charges the categorizer has matched.
-const DefaultLabel = "grab-auto"
-
 // Config is the categorizer's local configuration.
 type Config struct {
-	KeyRef     string     `toml:"key_ref"`
-	AccountID  int64      `toml:"account_id"`
-	Payees     []string   `toml:"payees"`
-	Label      string     `toml:"label"`
-	Categories Categories `toml:"categories"`
-	Tips       Tips       `toml:"tips"`
-	Attention  Attention  `toml:"attention"`
-	Income     Income     `toml:"income"`
-	Trips      Trips      `toml:"trips"`
-	Plaid      Plaid      `toml:"plaid"`
-	Calendar   Calendar   `toml:"calendar"`
+	KeyRef    string              `toml:"key_ref"`
+	AccountID int64               `toml:"account_id"`
+	Tips      Tips                `toml:"tips"`
+	Merchants map[string]Merchant `toml:"merchants"`
+	Attention Attention           `toml:"attention"`
+	Income    Income              `toml:"income"`
+	Trips     Trips               `toml:"trips"`
+	Plaid     Plaid               `toml:"plaid"`
+	Calendar  Calendar            `toml:"calendar"`
 }
 
-// Categories are the PocketSmith category IDs for each kind of service.
-type Categories struct {
-	Ride     int64 `toml:"ride"`
-	Delivery int64 `toml:"delivery"`
+// Merchant is a merchant's table: the payees its charges carry, the first day its receipts
+// reach the mail (YYYY-MM-DD), the category title for each kind of part it sells, and whether
+// its charges stay home on trips.
+type Merchant struct {
+	Payees     []string          `toml:"payees"`
+	Start      string            `toml:"start"`
+	Categories map[string]string `toml:"categories"`
+	StayHome   bool              `toml:"stay_home"`
 }
+
+// moved are the keys of Grab's settings before they moved to its merchant table.
+var moved = []string{"payees", "label", "categories"}
 
 // Tips are the tip amounts in THB for each kind of service.
 type Tips struct {
@@ -59,13 +63,14 @@ func Load(path string) (Config, error) {
 	}
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		keys := make([]string, len(undecoded))
+		hint := ""
 		for i, k := range undecoded {
 			keys[i] = k.String()
+			if slices.Contains(moved, k[0]) {
+				hint = " (Grab's payees and categories are in [merchants.grab])"
+			}
 		}
-		return Config{}, fmt.Errorf("config %s: unknown keys %s", path, strings.Join(keys, ", "))
-	}
-	if c.Label == "" {
-		c.Label = DefaultLabel
+		return Config{}, fmt.Errorf("config %s: unknown keys %s%s", path, strings.Join(keys, ", "), hint)
 	}
 	var missing []string
 	if c.KeyRef == "" {
@@ -74,28 +79,56 @@ func Load(path string) (Config, error) {
 	if c.AccountID == 0 {
 		missing = append(missing, "account_id")
 	}
-	if len(c.Payees) == 0 {
-		missing = append(missing, "payees")
-	}
-	if c.Categories.Ride == 0 {
-		missing = append(missing, "categories.ride")
-	}
-	if c.Categories.Delivery == 0 {
-		missing = append(missing, "categories.delivery")
-	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("config %s: missing %s", path, strings.Join(missing, ", "))
 	}
 	return c, nil
 }
 
-// Policy is the categorization policy the config describes.
-func (c Config) Policy() categorize.Policy {
-	return categorize.Policy{
-		Ride:     ledger.CategoryID(c.Categories.Ride),
-		Delivery: ledger.CategoryID(c.Categories.Delivery),
-		Label:    c.Label,
+// Merchant is m with its table's settings: its payees, its receipts' start, its categories
+// resolved by title against cats, one for each kind m sells, and whether it stays home.
+func (c Config) Merchant(m evidence.Merchant, cats []ledger.Category) (evidence.Merchant, error) {
+	table, ok := c.Merchants[m.Name]
+	if !ok {
+		return evidence.Merchant{}, fmt.Errorf("config: missing merchants.%s", m.Name)
 	}
+	key := "merchants." + m.Name + "."
+	var missing []string
+	if len(table.Payees) == 0 {
+		missing = append(missing, key+"payees")
+	}
+	if table.Start == "" {
+		missing = append(missing, key+"start")
+	}
+	for _, k := range m.Kinds {
+		if table.Categories[string(k)] == "" {
+			missing = append(missing, key+"categories."+string(k))
+		}
+	}
+	if len(missing) > 0 {
+		return evidence.Merchant{}, fmt.Errorf("config: missing %s", strings.Join(missing, ", "))
+	}
+	start, err := day.Parse(table.Start)
+	if err != nil {
+		return evidence.Merchant{}, fmt.Errorf("config: %sstart: %w", key, err)
+	}
+	ids := map[string]ledger.CategoryID{}
+	for _, cat := range cats {
+		ids[cat.Title] = cat.ID
+	}
+	m.Categories = map[evidence.Kind]ledger.CategoryID{}
+	for _, kind := range slices.Sorted(maps.Keys(table.Categories)) {
+		if !slices.Contains(m.Kinds, evidence.Kind(kind)) {
+			return evidence.Merchant{}, fmt.Errorf("config: %scategories.%s: %s sells no %s", key, kind, m.Name, kind)
+		}
+		id, ok := ids[table.Categories[kind]]
+		if !ok {
+			return evidence.Merchant{}, fmt.Errorf("config: %scategories.%s: no category %q", key, kind, table.Categories[kind])
+		}
+		m.Categories[evidence.Kind(kind)] = id
+	}
+	m.Payees, m.Start, m.StayHome = table.Payees, start, table.StayHome
+	return m, nil
 }
 
 // Paths returns the config file and journal directory under home.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/fx"
 	"github.com/cehbz/pocketsmith-categorizer/grab"
 	"github.com/cehbz/pocketsmith-categorizer/history"
@@ -59,6 +60,16 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	cats, err := ps.Categories(ctx)
+	if err != nil {
+		return err
+	}
+	g, err := cfg.Merchant(grab.Merchant(), cats)
+	if err != nil {
+		return err
+	}
+	// A statement's service is a ride or a delivery; a delivery takes food's category.
+	policy := categorize.Policy{Ride: g.Categories[evidence.Ride], Delivery: g.Categories[evidence.Food], Label: g.Label}
 	bkk, err := time.LoadLocation("Asia/Bangkok")
 	if err != nil {
 		return err
@@ -84,7 +95,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return errors.New("the statements hold no payments")
 	}
 	first, last := period(payments, loc)
-	charges, err := ps.Charges(ctx, cfg.AccountID, first, last, cfg.Payees)
+	charges, err := ps.Charges(ctx, cfg.AccountID, first, last, g.Payees)
 	if err != nil {
 		return err
 	}
@@ -96,7 +107,6 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	policy := cfg.Policy()
 	changes, correct := policy.Changes(m.Pairs)
 	tipChanges, tipCorrect, rest, err := settleTips(policy, cfg.Tips, rates.THBPerUSD, m.Unclaimed)
 	if err != nil {

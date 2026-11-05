@@ -15,9 +15,11 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/config"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/fx"
 	"github.com/cehbz/pocketsmith-categorizer/gcal"
 	"github.com/cehbz/pocketsmith-categorizer/gmail"
+	"github.com/cehbz/pocketsmith-categorizer/grab"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/plaid"
@@ -79,6 +81,10 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
+	g, err := cfg.Merchant(grab.Merchant(), cats)
+	if err != nil {
+		return nil, err
+	}
 	card, err := openCard(ctx, cfg.Plaid)
 	if err != nil {
 		return nil, err
@@ -102,7 +108,7 @@ func open(ctx context.Context, configPath, rulesPath string) (*session, error) {
 	return &session{ledger: l, titles: titles, rules: rs, today: day.Of(time.Now(), loc), attention: set,
 		trips: tripSet, card: card, accounts: slices.Sorted(maps.Values(cfg.Plaid.Accounts)), calendar: cal,
 		receipts: mail, rates: fx.Cache{Path: config.RatesPath(home), Source: fx.Frankfurter{BaseURL: fx.DefaultBaseURL, HTTP: retry.Client(30 * time.Second)}},
-		grabPayees: cfg.Payees, grabPolicy: cfg.Policy(), loc: loc}, nil
+		grabPayees: g.Payees, grabPolicy: categorize.Policy{Ride: g.Categories[evidence.Ride], Delivery: g.Categories[evidence.Food], Label: g.Label}, loc: loc}, nil
 }
 
 // openCard reads the Plaid secrets and returns the card they open.

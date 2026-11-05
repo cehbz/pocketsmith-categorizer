@@ -7,16 +7,17 @@ key_ref = "op://VAULT/ITEM/FIELD"
 # PocketSmith transaction account that carries the Grab charges.
 account_id = 0
 
-# Payees that mark a charge as Grab's.
+# Each merchant: the payees its charges carry, the first day its receipts reach your mail,
+# and a category title for each kind of part it sells.
+[merchants.grab]
 payees = ["WWW.GRAB.COM", "GRABTAXI"]
+start = "2026-01-01"
 
-# Label added to every charge the categorizer matches.
-label = "grab-auto"
-
-# PocketSmith category IDs.
-[categories]
-ride = 0
-delivery = 0
+[merchants.grab.categories]
+ride = "Transport"
+food = "Food"
+mart = "Food"
+express = "Transport"
 
 # THB tip amounts; an unclaimed charge at one of them is a tip of that kind.
 [tips]

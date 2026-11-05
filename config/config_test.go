@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
@@ -26,27 +27,90 @@ func write(t *testing.T, name, content string, mode os.FileMode) string {
 const full = `
 key_ref = "op://Vault/Item/field"
 account_id = 42
-payees = ["WWW.GRAB.COM", "GRABTAXI"]
 
-[categories]
-ride = 7
-delivery = 9
+[merchants.grab]
+payees = ["WWW.GRAB.COM", "GRABTAXI"]
+start = "2026-10-26"
+
+[merchants.grab.categories]
+ride = "Rides"
+food = "Delivery"
 `
 
-func TestLoadReadsEveryFieldAndDefaultsTheLabel(t *testing.T) {
+func TestLoadReadsEveryField(t *testing.T) {
 	c, err := Load(write(t, "config.toml", full, 0o600))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.KeyRef != "op://Vault/Item/field" || c.AccountID != 42 || !slices.Equal(c.Payees, []string{"WWW.GRAB.COM", "GRABTAXI"}) {
+	grab := Merchant{Payees: []string{"WWW.GRAB.COM", "GRABTAXI"}, Start: "2026-10-26", Categories: map[string]string{"ride": "Rides", "food": "Delivery"}}
+	if c.KeyRef != "op://Vault/Item/field" || c.AccountID != 42 || !reflect.DeepEqual(c.Merchants, map[string]Merchant{"grab": grab}) {
 		t.Errorf("config = %+v", c)
 	}
-	if c.Label != "grab-auto" {
-		t.Errorf("label = %q, want grab-auto", c.Label)
+}
+
+func TestLoadRejectsGrabsSettingsOutsideItsMerchantTable(t *testing.T) {
+	old := "key_ref = \"op://Vault/Item/field\"\naccount_id = 42\npayees = [\"GRAB\"]\nlabel = \"grab-auto\"\n[categories]\nride = 7\n"
+	path := write(t, "config.toml", old, 0o600)
+	_, err := Load(path)
+	want := "config " + path + ": unknown keys payees, label, categories, categories.ride (Grab's payees and categories are in [merchants.grab])"
+	if err == nil || err.Error() != want {
+		t.Errorf("Load error = %v; want %s", err, want)
 	}
-	p := c.Policy()
-	if p.Ride != 7 || p.Delivery != 9 || p.Label != "grab-auto" {
-		t.Errorf("policy = %+v", p)
+}
+
+// sells is a merchant selling rides and food, before the config's table.
+var sells = evidence.Merchant{Name: "grab", Label: "grab-auto", Kinds: []evidence.Kind{evidence.Ride, evidence.Food}}
+
+var merchantCats = []ledger.Category{{ID: 21, Title: "Rides"}, {ID: 22, Title: "Delivery"}}
+
+func TestMerchantResolvesItsTable(t *testing.T) {
+	c, err := Load(write(t, "config.toml", full+"\n[merchants.lazada]\nstay_home = true\n", 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Merchant(sells, merchantCats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := sells
+	want.Payees, want.Start = []string{"WWW.GRAB.COM", "GRABTAXI"}, time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	want.Categories = map[evidence.Kind]ledger.CategoryID{evidence.Ride: 21, evidence.Food: 22}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Merchant = %+v\nwant %+v", got, want)
+	}
+	if !c.Merchants["lazada"].StayHome {
+		t.Errorf("lazada's table = %+v; want it to stay home", c.Merchants["lazada"])
+	}
+}
+
+func TestMerchantNamesWhatIsMissing(t *testing.T) {
+	c, err := Load(write(t, "config.toml", "key_ref = \"x\"\naccount_id = 1\n[merchants.grab.categories]\nride = \"Rides\"\n", 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Merchant(sells, merchantCats)
+	if want := "config: missing merchants.grab.payees, merchants.grab.start, merchants.grab.categories.food"; err == nil || err.Error() != want {
+		t.Errorf("Merchant error = %v; want %s", err, want)
+	}
+	lazada := evidence.Merchant{Name: "lazada"}
+	if _, err := c.Merchant(lazada, merchantCats); err == nil || err.Error() != "config: missing merchants.lazada" {
+		t.Errorf("Merchant error = %v; want config: missing merchants.lazada", err)
+	}
+}
+
+func TestMerchantRejectsAnUnknownKindOrTitleAndABadStart(t *testing.T) {
+	for _, c := range []struct{ config, want string }{
+		{strings.Replace(full, "food = \"Delivery\"", "food = \"Delivery\"\ntaxi = \"Rides\"", 1), "config: merchants.grab.categories.taxi: grab sells no taxi"},
+		{strings.Replace(full, "food = \"Delivery\"", "food = \"Takeaway\"", 1), `config: merchants.grab.categories.food: no category "Takeaway"`},
+		{strings.Replace(full, "2026-10-26", "2026-13-01", 1), "config: merchants.grab.start: "},
+	} {
+		cfg, err := Load(write(t, "config.toml", c.config, 0o600))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cfg.Merchant(sells, merchantCats); err == nil || !strings.HasPrefix(err.Error(), c.want) {
+			t.Errorf("Merchant error = %v; want one starting %s", err, c.want)
+		}
 	}
 }
 
@@ -71,11 +135,11 @@ func TestLoadWithoutTipsHasNone(t *testing.T) {
 }
 
 func TestLoadNamesMissingFields(t *testing.T) {
-	_, err := Load(write(t, "config.toml", `label = "x"`, 0o600))
+	_, err := Load(write(t, "config.toml", `[attention]`, 0o600))
 	if err == nil {
 		t.Fatal("Load accepted an empty config")
 	}
-	for _, f := range []string{"key_ref", "account_id", "payees", "categories.ride", "categories.delivery"} {
+	for _, f := range []string{"key_ref", "account_id"} {
 		if !strings.Contains(err.Error(), f) {
 			t.Errorf("error %q doesn't name %s", err, f)
 		}
@@ -142,12 +206,12 @@ func TestReadSecretRefusesAnEmptyOrMissingFile(t *testing.T) {
 }
 
 func TestLoadRejectsUnknownKeys(t *testing.T) {
-	path := write(t, "config.toml", "lable = \"x\"\n"+full+"rid = 8\n", 0o600)
+	path := write(t, "config.toml", "lable = \"x\"\n"+full+"[merchants.lazada]\npayee = [\"x\"]\n", 0o600)
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load accepted unknown keys")
 	}
-	if want := "config " + path + ": unknown keys lable, categories.rid"; err.Error() != want {
+	if want := "config " + path + ": unknown keys lable, merchants.lazada.payee"; err.Error() != want {
 		t.Errorf("error = %q, want %q", err, want)
 	}
 }
