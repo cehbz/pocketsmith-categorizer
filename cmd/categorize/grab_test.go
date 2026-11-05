@@ -19,37 +19,6 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
 
-// fakeMailbox is a mailbox holding the messages each query finds. It records each search
-// and the ids it read in full, and fails every search with err when it isn't nil.
-type fakeMailbox struct {
-	messages map[string][]gmail.Message // by query
-	err      error
-	searches []search
-	read     []string
-}
-
-// search is one query over a window of days.
-type search struct {
-	query    string
-	from, to time.Time
-}
-
-func (m *fakeMailbox) Messages(_ context.Context, query string, from, to time.Time, skip func(id string) bool) ([]gmail.Message, error) {
-	m.searches = append(m.searches, search{query, from, to})
-	if m.err != nil {
-		return nil, m.err
-	}
-	var out []gmail.Message
-	for _, msg := range m.messages[query] {
-		if skip != nil && skip(msg.ID) {
-			continue
-		}
-		m.read = append(m.read, msg.ID)
-		out = append(out, msg)
-	}
-	return out, nil
-}
-
 // fakeRates is a rate source at a fixed THB per USD that counts its fetches.
 type fakeRates struct {
 	src     fx.Frankfurter
@@ -72,20 +41,6 @@ func (r *fakeRates) Fetch(ctx context.Context, first, last time.Time) (fx.Table,
 }
 
 var grabPolicy = categorize.Policy{Ride: 21, Delivery: 22, Label: "grab-auto"}
-
-const (
-	rideReceipt = `Grab E-Receipt | Standard | | Hope you enjoyed your ride! Booking ID: A-TESTRIDE0001 | | Total Paid | ฿70 | Grab Thailand`
-	foodReceipt = `| ทานอาหารให้อร่อย! | | รวม ฿ 350 | ใบเสร็จรับเงิน | GrabFood | รหัสการจอง A-TESTFOOD0002 | รวม | ฿ 350`
-	noTotal     = `Standard Hope you enjoyed your ride! Booking ID: A-TESTRIDE0003`
-)
-
-func at(s string) time.Time {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		panic(err)
-	}
-	return t
-}
 
 func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) {
 	box := &fakeMailbox{messages: map[string][]gmail.Message{receiptQuery: {

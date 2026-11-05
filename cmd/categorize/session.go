@@ -46,11 +46,12 @@ type session struct {
 	card       trips.Card
 	accounts   []string // the PocketSmith accounts the card covers
 	calendar   trips.Calendar
-	receipts   mailbox           // the user's mail, for Grab's receipts
-	rates      rateSource        // THB per USD
-	grabPayees []string          // the payees Grab's charges carry
-	grabPolicy categorize.Policy // the category for each Grab service and the label it adds
-	loc        *time.Location    // the ledger's time zone
+	receipts   mailbox             // the user's mail, for merchants' receipts
+	merchants  []evidence.Merchant // the merchants whose mail explains their charges
+	rates      rateSource          // THB per USD
+	grabPayees []string            // the payees Grab's charges carry
+	grabPolicy categorize.Policy   // the category for each Grab service and the label it adds
+	loc        *time.Location      // the ledger's time zone
 }
 
 // open loads config, reads the PocketSmith key, the Plaid secrets and the Google OAuth client,
