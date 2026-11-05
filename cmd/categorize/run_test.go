@@ -473,7 +473,7 @@ func TestAnUnreadableReceiptMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
 	if len(b.notices) != 1 {
 		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out)
 	}
-	if !strings.Contains(out, "\nUnreadable Grab Receipts\n  Received      Why\n  Oct 29 08:00  no total\n") {
+	if !strings.Contains(out, "\nUnreadable Receipts\n  Received      Merchant  Why\n  Oct 29 08:00  Grab      no total\n") {
 		t.Errorf("second run's report lacks the receipt not read\n%s", out)
 	}
 }

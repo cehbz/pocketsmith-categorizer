@@ -1,5 +1,5 @@
-Run 2026-11-04 09:30 · 10 of 11 changes applied
-Grab receipts matched on stale rates: rates kept through 2026-11-03: fx: 503
+Run 2026-11-04 09:30 · 11 of 12 changes applied
+Receipts matched on stale rates: rates kept through 2026-11-03: fx: 503
 
 NEEDS YOU
 
@@ -34,9 +34,9 @@ Trip Hints
 Trips Renamed or Redated
   Farcity trip · Mar 10 – Mar 14
 
-Unreadable Grab Receipts
-  Received     Why
-  Nov 2 06:19  no total
+Unreadable Receipts
+  Received     Merchant  Why
+  Nov 2 06:19  Grab      no total
 
 Not Applied
   Date   Payee       Amount  Category                       Why
@@ -52,10 +52,10 @@ Review Reasons
 
 APPLIED
 
-Grab Receipts
-  Date   Amount  Category            Receipt
-  Nov 3   −4.20  Eating Out → Rides  A-FAKE0001
-  Nov 2  −15.75  Eating Out          A-FAKE0002
+Receipts
+  Date   Merchant  Amount  Category            Receipt
+  Nov 3  Grab       −4.20  Eating Out → Rides  A-FAKE0001
+  Nov 2  Lazada    −15.75  Eating Out          900000000000009
 
 Confirmed by Rule
   Date    Payee         Amount  Category       Rule
@@ -77,6 +77,7 @@ Refunds
   Date    Payee           Amount  Category                      Of
   Oct 20  HARBOUR HOTEL   +88.40  Discretionary → Trip Lodging  Seaside trip
   Oct 25  FERRY LINE     +300.00  Trip Transport                trip booking
+  Oct 28  LAZADA PAY      +14.30  Groceries → Discretionary     Lazada 900000000000011
 
 Other
   Date   Payee         Amount  Category       Source
@@ -97,6 +98,7 @@ Monthly Income
   October   5,400.00  expected 5,000.00, off by +400.00, mismatch
   November  5,100.00  awaiting card bill and rent
 
-Unmatched Grab Receipts
-  Paid         Account  Service     THB  Booking
-  Nov 1 13:05  rider    Standard  83.00  A-FAKE0003
+Unmatched Receipts
+  Paid          Merchant  Kind        THB  Receipt
+  Nov 1 13:05   Grab      ride      83.00  A-FAKE0003
+  Oct 30 10:15  Lazada    order  1,250.00  900000000000011+900000000000012

@@ -13,7 +13,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
-	"github.com/cehbz/pocketsmith-categorizer/grab"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -165,30 +165,31 @@ func TestAppliedChangesAreGroupedByWhyTheyWereMade(t *testing.T) {
 	r := Run{
 		Changes: []categorize.Change{
 			change(1, 3, 5, categorize.Reason{Why: categorize.OnTrip, Trip: "trip-2026-01-farcity"}),
-			change(2, 3, 5, categorize.Reason{Why: categorize.ByReceipt, Booking: "A-TESTRIDE0001"}),
+			change(2, 3, 5, categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-TESTRIDE0001"}),
 			change(3, 3, 5, categorize.Reason{Why: categorize.Refund, Trip: trips.Booking}),
 			change(4, 5, 5, categorize.Reason{Why: categorize.ByRule, Rule: "SHOP"}),
 			change(5, 3, 5, categorize.Reason{Why: categorize.OffTrip}),
 			change(6, 3, 5, categorize.Reason{}),
 			change(7, 3, 5, categorize.Reason{Why: categorize.ByRule, Rule: "CAFE"}),
+			change(8, 3, 5, categorize.Reason{Why: categorize.Refund, Merchant: "lazada", Receipt: "900000000000001"}),
 		},
-		Applied: 7,
+		Applied: 8,
 		Transactions: map[int64]ledger.Transaction{
-			1: rtx(1, "HOTEL", 3), 2: rtx(2, "GRAB", 3), 3: rtx(3, "AIRLINE", 3), 4: rtx(4, "SHOP", 5), 5: rtx(5, "NOODLES", 3), 6: rtx(6, "ODD", 3), 7: rtx(7, "CAFE", 3),
+			1: rtx(1, "HOTEL", 3), 2: rtx(2, "GRAB", 3), 3: rtx(3, "AIRLINE", 3), 4: rtx(4, "SHOP", 5), 5: rtx(5, "NOODLES", 3), 6: rtx(6, "ODD", 3), 7: rtx(7, "CAFE", 3), 8: rtx(8, "LAZADA PAY", 3),
 		},
 	}
 	out := write(t, r)
-	want := []string{"APPLIED", "Grab Receipts", "Confirmed by Rule", "Rules", "Trips", "Removed from Trips", "Refunds", "Other"}
+	want := []string{"APPLIED", "Receipts", "Confirmed by Rule", "Rules", "Trips", "Removed from Trips", "Refunds", "Other"}
 	if got := sections(out); !slices.Equal(got, want) {
 		t.Errorf("sections %q, want %q\n%s", got, want, out)
 	}
 	for title, row := range map[string]string{
-		"Grab Receipts":      "Feb 1 −12.50 Phone → Food A-TESTRIDE0001",
+		"Receipts":           "Feb 1 Grab −12.50 Phone → Food A-TESTRIDE0001",
 		"Confirmed by Rule":  "Feb 1 SHOP −12.50 Food SHOP",
 		"Rules":              "Feb 1 CAFE −12.50 Phone → Food CAFE",
 		"Trips":              "Feb 1 HOTEL −12.50 Phone → Food Farcity trip",
 		"Removed from Trips": "Feb 1 NOODLES −12.50 Phone → Food",
-		"Refunds":            "Feb 1 AIRLINE −12.50 Phone → Food trip booking",
+		"Refunds":            "Feb 1 AIRLINE −12.50 Phone → Food trip booking\nFeb 1 LAZADA PAY −12.50 Phone → Food Lazada 900000000000001",
 		"Other":              "Feb 1 ODD −12.50 Phone → Food s",
 	} {
 		if b, _ := body(out, title); !strings.Contains(b, row) {
@@ -265,11 +266,11 @@ func TestReviewReasonsReadAsPhrases(t *testing.T) {
 	r := Run{
 		Flags:        []categorize.Change{{Charge: 2, Before: ledger.State{Category: 9}, After: ledger.State{Category: 9, NeedsReview: true}}},
 		FlagsApplied: 1,
-		Reasons:      map[int64][]string{2: {attention.NewPayee, attention.Large}},
+		Reasons:      map[int64][]string{2: {attention.NewPayee, attention.Large, evidence.NoReceipt("lazada")}},
 		Transactions: map[int64]ledger.Transaction{2: rtx(2, "ATM", 9)},
 	}
 	out := write(t, r)
-	if b, _ := body(out, "Review Reasons"); b != "Feb 1 ATM −12.50 new payee, larger than usual" {
+	if b, _ := body(out, "Review Reasons"); b != "Feb 1 ATM −12.50 new payee, larger than usual, no Lazada receipt" {
 		t.Errorf("Review Reasons = %q\n%s", b, out)
 	}
 	if !strings.HasPrefix(out, "Run 2026-11-04 09:30 · 1 of 1 changes applied\n") {
@@ -318,7 +319,7 @@ func fixtureRun() Run {
 		return categorize.Change{Charge: id, Before: txs[id].State, After: ledger.State{Category: after}, Source: "source", Reason: reason}
 	}
 	tx(101, "2026-11-03", -4.2, "GRAB RIDES", card, 2)
-	tx(102, "2026-11-02", -15.75, "GRAB RIDES", card, 2)
+	tx(102, "2026-11-02", -15.75, "LAZADA PAY", card, 2)
 	tx(103, "2026-10-30", -23, "CORNER BOOKS", card, 4)
 	tx(104, "2025-01-15", 1250, "SPARKLE MARKET", card, 1)
 	tx(105, "2026-10-12", -88.4, "HARBOUR HOTEL", card, 4)
@@ -333,12 +334,13 @@ func fixtureRun() Run {
 	tx(114, "2026-09-14", -18, "BOOK NOOK", card, 1)
 	tx(115, "2026-10-14", -11.3, "SEASIDE TAXI", card, 7)
 	tx(116, "2026-09-02", -7.25, "OLD MARKET", card, 1)
+	tx(117, "2026-10-28", 14.3, "LAZADA PAY", card, 1)
 	seaside := "trip-2026-10-seaside"
 	return Run{
 		RunID: "20261104T093000.000000000Z", At: runAt, Titles: cats, Transactions: txs,
 		Changes: []categorize.Change{
-			change(101, 3, categorize.Reason{Why: categorize.ByReceipt, Booking: "A-FAKE0001"}),
-			change(102, 2, categorize.Reason{Why: categorize.ByReceipt, Booking: "A-FAKE0002"}),
+			change(101, 3, categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-FAKE0001"}),
+			change(102, 2, categorize.Reason{Why: categorize.ByReceipt, Merchant: "lazada", Receipt: "900000000000009"}),
 			change(103, 4, categorize.Reason{Why: categorize.ByRule, Rule: "CORNER BOOKS"}),
 			change(104, 4, categorize.Reason{Why: categorize.ByRule, Rule: "SPARKLE"}),
 			change(105, 6, categorize.Reason{Why: categorize.OnTrip, Trip: seaside}),
@@ -346,9 +348,10 @@ func fixtureRun() Run {
 			change(107, 6, categorize.Reason{Why: categorize.Refund, Trip: seaside}),
 			change(108, 7, categorize.Reason{Why: categorize.Refund, Trip: trips.Booking}),
 			change(109, 4, categorize.Reason{}),
+			change(117, 4, categorize.Reason{Why: categorize.Refund, Merchant: "lazada", Receipt: "900000000000011"}),
 			change(110, 4, categorize.Reason{Why: categorize.ByRule, Rule: "PET CLINIC"}),
 		},
-		Applied:      9,
+		Applied:      10,
 		Flags:        []categorize.Change{{Charge: 111, Before: txs[111].State, After: ledger.State{Category: 2, NeedsReview: true}}},
 		FlagsApplied: 1,
 		Reasons:      map[int64][]string{111: {attention.NewPayee, attention.Large}, 105: {trips.Placed}},
@@ -376,8 +379,12 @@ func fixtureRun() Run {
 		TripVersions:   []trips.Trip{reportTrip("trip-2026-03-farcity", false)},
 		Hints:          []trips.Hint{{Edited: reportTrip("trip-2026-03-farcity", false), Inferred: reportInferred("trip-2026-03-10", false)}},
 		Receipts: Receipts{
-			Unreadable: []Unreadable{{ID: "m1", Received: time.Date(2026, 11, 2, 6, 19, 0, 0, time.UTC), Why: "no total"}},
-			Unmatched:  []grab.Payment{{Booking: "A-FAKE0003", Service: "Standard", THB: 83, At: time.Date(2026, 11, 1, 13, 5, 0, 0, time.UTC), Account: "rider@example.com"}},
+			Unreadable: []Unreadable{{ID: "m1", Merchant: "grab", Received: time.Date(2026, 11, 2, 6, 19, 0, 0, time.UTC), Why: "no total"}},
+			Unmatched: []evidence.Receipt{
+				{Merchant: "grab", At: time.Date(2026, 11, 1, 13, 5, 0, 0, time.UTC), Parts: []evidence.Part{{Ref: "A-FAKE0003", Kind: evidence.Ride, THB: 83}}},
+				{Merchant: "lazada", At: time.Date(2026, 10, 30, 10, 15, 0, 0, time.UTC), Parts: []evidence.Part{
+					{Ref: "900000000000011", Kind: evidence.Order, THB: 850}, {Ref: "900000000000012", Kind: evidence.Order, THB: 400}}},
+			},
 			StaleRates: errors.New("rates kept through 2026-11-03: fx: 503"),
 		},
 	}

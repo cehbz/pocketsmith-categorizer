@@ -6,7 +6,7 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
-	"github.com/cehbz/pocketsmith-categorizer/grab"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
@@ -39,7 +39,7 @@ func TestARunWithOnlyStandingListsOrAppliedChangesIsDueNoNotice(t *testing.T) {
 		Applied:     1,
 		Corrections: []categorize.Change{{Charge: 2}},
 		Undecided:   []ledger.Transaction{{ID: 3}},
-		Receipts:    Receipts{Unmatched: []grab.Payment{{}}},
+		Receipts:    Receipts{Unmatched: []evidence.Receipt{{}}},
 	}
 	if subject, due := Notice(r); due {
 		t.Errorf("Notice = %q, true; want no notice", subject)

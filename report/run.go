@@ -13,7 +13,7 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/attention"
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
-	"github.com/cehbz/pocketsmith-categorizer/grab"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/learn"
 	"github.com/cehbz/pocketsmith-categorizer/ledger"
@@ -45,23 +45,24 @@ type Run struct {
 	TripsAdded     []trips.Inferred             // trips the run added to the list, with their evidence
 	TripVersions   []trips.Trip                 // listed trips placed under new names or dates
 	Hints          []trips.Hint                 // inferred trips reaching beyond trips the user edited
-	Receipts       Receipts                     // the Grab receipts the run couldn't read or match
+	Receipts       Receipts                     // the receipts the run couldn't read or match
 	NewHints       int                          // how many of Hints no earlier run counted
 	NewUnreadable  int                          // how many of Receipts.Unreadable no earlier run counted
 }
 
-// Receipts are the Grab receipts a run couldn't use: those it couldn't read and the payments
-// no charge matched.
+// Receipts are the merchants' receipts a run couldn't use: the messages it couldn't read and
+// the receipts no charge paid.
 type Receipts struct {
 	Unreadable []Unreadable
-	Unmatched  []grab.Payment
+	Unmatched  []evidence.Receipt
 	StaleRates error // why the receipts were matched on kept exchange rates; nil when the rates were fetched
 }
 
-// Unreadable is a receipt that arrived at Received and couldn't be read, and why; ID is its
-// message.
+// Unreadable is a merchant's message that arrived at Received and couldn't be read, and why;
+// ID is the message's.
 type Unreadable struct {
 	ID       string
+	Merchant string
 	Received time.Time
 	Why      string
 }
@@ -92,7 +93,7 @@ func WriteRunHTML(w io.Writer, r Run) error { return r.layout().writeHTML(w) }
 func (r Run) layout() doc {
 	d := doc{header: fmt.Sprintf("Run %s · %d of %d changes applied", r.At.Format("2006-01-02 15:04"), r.Applied+r.FlagsApplied, len(r.Changes)+len(r.Flags))}
 	if r.Receipts.StaleRates != nil {
-		d.notes = append(d.notes, fmt.Sprintf("Grab receipts matched on stale rates: %v", r.Receipts.StaleRates))
+		d.notes = append(d.notes, fmt.Sprintf("Receipts matched on stale rates: %v", r.Receipts.StaleRates))
 	}
 	byRule, onTrips := r.amendments()
 	d.add("Needs You", true, r.proposals(), r.ruleAmendments(byRule), r.suggestions(),
@@ -186,17 +187,25 @@ func (r Run) suggestions() section {
 func decider(reason categorize.Reason, source string) string {
 	switch reason.Why {
 	case categorize.ByReceipt:
-		return "receipt " + reason.Booking
+		return "receipt " + reason.Receipt
 	case categorize.ByRule:
 		return "rule " + reason.Rule
 	case categorize.OnTrip:
 		return tripName(reason.Trip)
 	case categorize.Refund:
-		return "refund, " + tripName(reason.Trip)
+		return "refund, " + refunded(reason)
 	case categorize.OffTrip:
 		return "removed from trips"
 	}
 	return source
+}
+
+// refunded names what a refund refunds: a merchant's part, or a trip's charge.
+func refunded(reason categorize.Reason) string {
+	if reason.Merchant != "" {
+		return evidence.Title(reason.Merchant) + " " + reason.Receipt
+	}
+	return tripName(reason.Trip)
 }
 
 // tripsAdded are the trips the run listed, with their evidence.
@@ -248,13 +257,13 @@ func (r Run) evidence(evidence []trips.Evidence) part {
 	return part{table: &t}
 }
 
-// unreadable are the Grab receipts the run couldn't read.
+// unreadable are the merchants' messages the run couldn't read.
 func (r Run) unreadable() section {
-	t := table{cols: cols([]string{"Received", "Why"})}
+	t := table{cols: cols([]string{"Received", "Merchant", "Why"})}
 	for _, u := range r.Receipts.Unreadable {
-		t.rows = append(t.rows, []string{r.date(u.Received) + u.Received.Format(" 15:04"), u.Why})
+		t.rows = append(t.rows, []string{r.date(u.Received) + u.Received.Format(" 15:04"), evidence.Title(u.Merchant), u.Why})
 	}
-	return tabled("Unreadable Grab Receipts", t)
+	return tabled("Unreadable Receipts", t)
 }
 
 // notApplied are the changes the run planned and failed to apply.
@@ -293,7 +302,7 @@ func (r Run) reviewReasons() section {
 // applied groups the changes r applied by why they were made.
 func (r Run) applied() []section {
 	moved := []string{"Date", "Payee", "Amount", "Category"}
-	grabbed := table{cols: cols([]string{"Date", "Amount", "Category", "Receipt"}, "Amount")}
+	receipts := table{cols: cols([]string{"Date", "Merchant", "Amount", "Category", "Receipt"}, "Amount")}
 	confirmed := table{cols: cols(append(moved, "Rule"), "Amount")}
 	ruled := table{cols: cols(append(moved, "Rule"), "Amount")}
 	placed := table{cols: cols(append(moved, "Trip"), "Amount")}
@@ -305,7 +314,7 @@ func (r Run) applied() []section {
 		switch c.Reason.Why {
 		case categorize.ByReceipt:
 			t := r.Transactions[c.Charge]
-			grabbed.rows = append(grabbed.rows, []string{r.date(t.Date), amount(t.Amount), r.move(c.Before.Category, c.After.Category), c.Reason.Booking})
+			receipts.rows = append(receipts.rows, []string{r.date(t.Date), evidence.Title(c.Reason.Merchant), amount(t.Amount), r.move(c.Before.Category, c.After.Category), c.Reason.Receipt})
 		case categorize.ByRule:
 			if c.Before.Category == c.After.Category {
 				confirmed.rows = append(confirmed.rows, append(row, c.Reason.Rule))
@@ -317,12 +326,12 @@ func (r Run) applied() []section {
 		case categorize.OffTrip:
 			removed.rows = append(removed.rows, row)
 		case categorize.Refund:
-			refunds.rows = append(refunds.rows, append(row, tripName(c.Reason.Trip)))
+			refunds.rows = append(refunds.rows, append(row, refunded(c.Reason)))
 		default:
 			other.rows = append(other.rows, append(row, c.Source))
 		}
 	}
-	return []section{tabled("Grab Receipts", grabbed), tabled("Confirmed by Rule", confirmed), tabled("Rules", ruled),
+	return []section{tabled("Receipts", receipts), tabled("Confirmed by Rule", confirmed), tabled("Rules", ruled),
 		tabled("Trips", placed), tabled("Removed from Trips", removed), tabled("Refunds", refunds), tabled("Other", other)}
 }
 
@@ -370,14 +379,13 @@ func (r Run) income() section {
 	return tabled("Monthly Income", t)
 }
 
-// unmatched are the Grab payments no charge matched.
+// unmatched are the merchants' receipts no charge paid.
 func (r Run) unmatched() section {
-	t := table{cols: cols([]string{"Paid", "Account", "Service", "THB", "Booking"}, "THB")}
+	t := table{cols: cols([]string{"Paid", "Merchant", "Kind", "THB", "Receipt"}, "THB")}
 	for _, p := range r.Receipts.Unmatched {
-		account, _, _ := strings.Cut(p.Account, "@")
-		t.rows = append(t.rows, []string{r.date(p.At) + p.At.Format(" 15:04"), account, string(p.Service), money(p.THB), p.Booking})
+		t.rows = append(t.rows, []string{r.date(p.At) + p.At.Format(" 15:04"), evidence.Title(p.Merchant), string(p.Kind()), money(p.THB()), p.Ref()})
 	}
-	return tabled("Unmatched Grab Receipts", t)
+	return tabled("Unmatched Receipts", t)
 }
 
 // Replay is a replay of the rules against the user's categorizations.

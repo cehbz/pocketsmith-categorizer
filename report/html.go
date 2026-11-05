@@ -49,7 +49,7 @@ type cell struct {
 }
 
 // details are the columns naming what decided or identifying a receipt, shown muted.
-var details = map[string]bool{"Receipt": true, "Rule": true, "By": true, "Of": true, "Trip": true, "Booking": true, "Source": true, "Why": true}
+var details = map[string]bool{"Receipt": true, "Rule": true, "By": true, "Of": true, "Trip": true, "Source": true, "Why": true}
 
 // writeHTML prints d as an HTML page.
 func (d doc) writeHTML(w io.Writer) error { return pageTemplate.Execute(w, d.page()) }

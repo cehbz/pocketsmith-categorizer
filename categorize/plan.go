@@ -50,19 +50,20 @@ type Why int
 
 const (
 	Unexplained Why = iota // no layer said why: a flag, a correction, an undo
-	ByReceipt              // a Grab receipt's service
+	ByReceipt              // a merchant's receipt
 	ByRule                 // a rule
 	OnTrip                 // placed on a trip, or as a booking no trip claimed
-	Refund                 // a credit placed with its charge
+	Refund                 // a credit placed with its charge, or with the part it refunds
 	OffTrip                // a trip placement reverted
 )
 
 // Reason is why a change was made: the kind of decision and what made it.
 type Reason struct {
-	Why     Why
-	Booking string // a receipt's Grab booking
-	Rule    string // a rule's name
-	Trip    string // the trip's name, or the booking label, for OnTrip and Refund
+	Why      Why
+	Merchant string // the merchant whose receipt decided, for ByReceipt and a receipt's Refund
+	Receipt  string // the receipt's reference, or the refunded part's
+	Rule     string // a rule's name
+	Trip     string // the trip's name, or the booking label, for OnTrip and a trip's Refund
 }
 
 // Changes returns a change for each pair whose charge isn't in its target state, and how many already are.

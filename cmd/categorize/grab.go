@@ -7,6 +7,7 @@ import (
 
 	"github.com/cehbz/pocketsmith-categorizer/categorize"
 	"github.com/cehbz/pocketsmith-categorizer/decide"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/fx"
 	"github.com/cehbz/pocketsmith-categorizer/gmail"
 	"github.com/cehbz/pocketsmith-categorizer/grab"
@@ -51,7 +52,7 @@ func readGrab(ctx context.Context, s *session, txs []ledger.Transaction, from ti
 		received := m.Received.In(s.loc)
 		p, err := grab.ReadReceipt(m.Text, received, m.To)
 		if err != nil {
-			receipts.Unreadable = append(receipts.Unreadable, report.Unreadable{ID: m.ID, Received: received, Why: err.Error()})
+			receipts.Unreadable = append(receipts.Unreadable, report.Unreadable{ID: m.ID, Merchant: "grab", Received: received, Why: err.Error()})
 			continue
 		}
 		payments = append(payments, p)
@@ -78,9 +79,11 @@ func readGrab(ctx context.Context, s *session, txs []ledger.Transaction, from ti
 	layer := grabLayer{decided: make(map[int64]decide.Decision, len(m.Pairs))}
 	for _, pr := range m.Pairs {
 		layer.decided[pr.Charge.ID] = decide.Decision{Category: s.grabPolicy.CategoryFor(pr.Payment), Label: s.grabPolicy.Label, Source: "grab " + pr.Payment.Booking,
-			Reason: categorize.Reason{Why: categorize.ByReceipt, Booking: pr.Payment.Booking}}
+			Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: pr.Payment.Booking}}
 	}
-	receipts.Unmatched = m.Unmatched
+	for _, p := range m.Unmatched {
+		receipts.Unmatched = append(receipts.Unmatched, evidence.Receipt{Merchant: "grab", At: p.At, Parts: []evidence.Part{{Ref: p.Booking, Kind: p.Service.Part(), THB: p.THB}}})
+	}
 	return layer, receipts, nil
 }
 

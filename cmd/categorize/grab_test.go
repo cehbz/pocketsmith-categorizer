@@ -112,8 +112,8 @@ func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) 
 		tx   ledger.Transaction
 		want decide.Decision
 	}{
-		{ride, decide.Decision{Category: 21, Label: "grab-auto", Source: "grab A-TESTRIDE0001", Reason: categorize.Reason{Why: categorize.ByReceipt, Booking: "A-TESTRIDE0001"}}},
-		{food, decide.Decision{Category: 22, Label: "grab-auto", Source: "grab A-TESTFOOD0002", Reason: categorize.Reason{Why: categorize.ByReceipt, Booking: "A-TESTFOOD0002"}}},
+		{ride, decide.Decision{Category: 21, Label: "grab-auto", Source: "grab A-TESTRIDE0001", Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-TESTRIDE0001"}}},
+		{food, decide.Decision{Category: 22, Label: "grab-auto", Source: "grab A-TESTFOOD0002", Reason: categorize.Reason{Why: categorize.ByReceipt, Merchant: "grab", Receipt: "A-TESTFOOD0002"}}},
 	} {
 		if got, ok := layer.Decide(c.tx); !ok || got != c.want {
 			t.Errorf("Decide(%d) = %+v, %t; want %+v", c.tx.ID, got, ok, c.want)
@@ -124,7 +124,7 @@ func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) 
 			t.Errorf("Decide(%d) = %+v; want an abstention", tx.ID, got)
 		}
 	}
-	want := []report.Unreadable{{ID: "m3", Received: at("2026-10-29T08:00:00Z"), Why: "no total"}}
+	want := []report.Unreadable{{ID: "m3", Merchant: "grab", Received: at("2026-10-29T08:00:00Z"), Why: "no total"}}
 	if !reflect.DeepEqual(receipts.Unreadable, want) || len(receipts.Unmatched) != 0 {
 		t.Errorf("receipts = %+v; want %+v unreadable and none unmatched", receipts, want)
 	}
@@ -137,7 +137,7 @@ func TestAReceiptNoChargeMatchesIsReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(receipts.Unmatched) != 1 || receipts.Unmatched[0].Booking != "A-TESTRIDE0001" {
+	if len(receipts.Unmatched) != 1 || receipts.Unmatched[0].Ref() != "A-TESTRIDE0001" || receipts.Unmatched[0].Merchant != "grab" {
 		t.Errorf("unmatched = %+v; want the ride", receipts.Unmatched)
 	}
 }

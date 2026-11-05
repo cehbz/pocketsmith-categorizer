@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cehbz/pocketsmith-categorizer/attention"
+	"github.com/cehbz/pocketsmith-categorizer/evidence"
 	"github.com/cehbz/pocketsmith-categorizer/internal/day"
 	"github.com/cehbz/pocketsmith-categorizer/trips"
 )
@@ -29,6 +30,9 @@ var phrases = map[string]string{
 // phrase is an attention label in plain words; an unknown one is shown without its prefix.
 func phrase(label string) string {
 	if p, ok := phrases[label]; ok {
+		return p
+	}
+	if p, ok := evidence.Phrase(label); ok {
 		return p
 	}
 	return strings.TrimPrefix(label, "attention-")
