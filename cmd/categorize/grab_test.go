@@ -19,27 +19,6 @@ import (
 	"github.com/cehbz/pocketsmith-categorizer/report"
 )
 
-// fakeRates is a rate source at a fixed THB per USD that counts its fetches.
-type fakeRates struct {
-	src     fx.Frankfurter
-	fetches int
-}
-
-// rates is a rate source at thb per USD on every day from 2026-01-01.
-func rates(t *testing.T, thb string) *fakeRates {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"amount":1.0,"base":"USD","rates":{"2026-01-01":{"THB":` + thb + `}}}`))
-	}))
-	t.Cleanup(srv.Close)
-	return &fakeRates{src: fx.Frankfurter{BaseURL: srv.URL, HTTP: srv.Client()}}
-}
-
-func (r *fakeRates) Fetch(ctx context.Context, first, last time.Time) (fx.Table, error) {
-	r.fetches++
-	return r.src.Fetch(ctx, first, last)
-}
-
 var grabPolicy = categorize.Policy{Ride: 21, Delivery: 22, Label: "grab-auto"}
 
 func TestTheGrabLayerDecidesTheChargesReceiptsMatchByTheirService(t *testing.T) {
