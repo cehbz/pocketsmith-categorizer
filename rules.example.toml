@@ -22,7 +22,7 @@ max = 1000                      # largest absolute amount
 category = "Cash"
 
 [[rule]]
-payee = '(?i)\bTEA[^A-Za-z]*HOUSE\b'
+payee = '(?i)(?:^|[^A-Za-z])TEA[^A-Za-z]*HOUSE(?:[^A-Za-z]|$)'
 category = "Dining"
 state = "tentative"              # "tentative", "confirmed" or "rejected"; absent means confirmed
 from = 2026-01-15                # first date the rule decides; absent means any date

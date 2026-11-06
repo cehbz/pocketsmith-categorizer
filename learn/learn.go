@@ -23,13 +23,14 @@ func words(payee string) []string {
 // key is the first n of ws.
 func key(ws []string, n int) string { return strings.Join(ws[:min(n, len(ws))], " ") }
 
-// Pattern is a case-insensitive payee pattern for key's words, in order, each a whole word.
+// Pattern is a case-insensitive payee pattern for key's words, in order, each a whole word of
+// letters: a digit ends a word, as it does for a key.
 func Pattern(key string) string {
 	words := strings.Fields(key)
 	for i, w := range words {
 		words[i] = regexp.QuoteMeta(w)
 	}
-	return `(?i)\b` + strings.Join(words, `[^A-Za-z]*`) + `\b`
+	return `(?i)(?:^|[^A-Za-z])` + strings.Join(words, `[^A-Za-z]*`) + `(?:[^A-Za-z]|$)`
 }
 
 // Proposal is a rule learned from the user's categorizations of one payee.

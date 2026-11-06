@@ -43,9 +43,17 @@ func TestPayeeKeyOfNoLettersIsEmpty(t *testing.T) {
 
 func TestPatternMatchesTheKeysWordsOnly(t *testing.T) {
 	re := regexp.MustCompile(Pattern("GOOGLE FI"))
-	for payee, want := range map[string]bool{"GOOGLE *FI AbCDE1": true, "Google Fi": true, "GOOGLE *Fitapp Workout": false} {
+	for payee, want := range map[string]bool{"GOOGLE *FI AbCDE1": true, "Google Fi": true, "GOOGLE *Fitapp Workout": false, "GOOGLE FI2": true, "XGOOGLE FI": false} {
 		if got := re.MatchString(payee); got != want {
 			t.Errorf("match %q = %v, want %v", payee, got, want)
+		}
+	}
+}
+
+func TestALearnedPatternMatchesTheChargeItWasLearnedFrom(t *testing.T) {
+	for _, payee := range []string{"TEAHUT * ABCDEF8GHJ", "2C3P *SHOP", "1TEA HOUSE", "TEA_HOUSE 12", "TEA HOUSE"} {
+		if re := regexp.MustCompile(Pattern(PayeeKey(payee))); !re.MatchString(payee) {
+			t.Errorf("the pattern of %q's key, %s, doesn't match it", payee, re)
 		}
 	}
 }
