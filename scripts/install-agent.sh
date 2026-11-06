@@ -12,3 +12,5 @@ sed "s#__HOME__#$HOME#g" "launchd/$label.plist" > "$plist"
 launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$plist"
 echo "loaded $label; run it now with: launchctl kickstart gui/$(id -u)/$label"
+echo "reading the ledger, so Little Snitch asks about the new build now rather than at 4am"
+"$HOME/.local/bin/categorize" replay -days 1 >/dev/null
