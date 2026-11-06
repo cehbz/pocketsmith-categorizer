@@ -10,7 +10,7 @@
 - Trip kinds took two runs to settle: the run after the back-fill moved some trip charges between Big subcategories (a museum, an airport food court and a restaurant between Discretionary and Food, a ground-transport booking from Lodging to Transport, parking and valet to Transport), and the run after that applied nothing. Cause not investigated. Kind by merchant code also files taxi apps under Discretionary and a theme park under Lodging.
 - Two back-filled charges moved from Charity to Big stayed there after Charity became a stay-home category.
 - Five Grab receipts from 2026-10-28 to 2026-11-02 match no charge, though every Grab charge is on one card; two are a booking's second receipt whose first matched. Not investigated.
-- Each run reads the lookback year's Grab receipts one request per message, and lists every unmatched receipt again, including those whose charge hasn't posted yet.
+- Each run lists every unmatched receipt again, including those whose charge hasn't posted yet.
 - `cmd/categorize` and `cmd/cleanup` each carry the same `period` helper.
 - Investigate replacing PocketSmith: fetching from every source it aggregates, a UI, and the PocketSmith features the user relies on. Start from first principles by interviewing the user on what they use PocketSmith for, then design from whole cloth.
 - The learner reads the 751 transactions in plain "Big" as the user's categorizations and can learn "Big" for a payee with two or more of them. Refuse a category that has subcategories, or move the old transactions into subcategories.
