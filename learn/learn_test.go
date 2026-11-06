@@ -50,6 +50,14 @@ func TestPatternMatchesTheKeysWordsOnly(t *testing.T) {
 	}
 }
 
+func TestProposeNeedsTwoCategorizations(t *testing.T) {
+	txs := []ledger.Transaction{user("RARE PLACE", "2026-01-01", 7), user("CAFE ONE", "2026-01-01", 5), user("CAFE ONE", "2026-01-02", 5)}
+	got := Propose(txs, 1, never)
+	if len(got) != 1 || got[0].Key != "CAFE ONE" {
+		t.Errorf("Propose = %+v; want CAFE ONE alone: RARE PLACE has one categorization", got)
+	}
+}
+
 func TestProposeNeedsUnanimousEvidence(t *testing.T) {
 	txs := []ledger.Transaction{
 		user("CAFE ONE 1", "2026-01-01", 5), user("CAFE ONE 2", "2026-01-02", 5), user("CAFE ONE 3", "2026-01-03", 5),
@@ -88,8 +96,8 @@ func TestBacktestFindsTheThreshold(t *testing.T) {
 		user("FICKLE CO", "2026-03-01", 6), user("FICKLE CO", "2026-04-01", 6),
 	}
 	trials := Backtest(txs, date("2026-01-01"), 3)
-	want := []Trial{{Min: 1, Evaluated: 4, Correct: 2}, {Min: 2, Evaluated: 2, Correct: 2}, {Min: 3, Evaluated: 0, Correct: 0}}
-	if len(trials) != 3 || trials[0] != want[0] || trials[1] != want[1] || trials[2] != want[2] {
+	want := []Trial{{Min: 2, Evaluated: 2, Correct: 2}, {Min: 3, Evaluated: 0, Correct: 0}}
+	if !slices.Equal(trials, want) {
 		t.Fatalf("Backtest = %+v, want %+v", trials, want)
 	}
 	if n, ok := Threshold(trials, 0.95, 1); !ok || n != 2 {
@@ -135,7 +143,7 @@ func TestBacktestScoresLengthenedKeys(t *testing.T) {
 		user("ZELLE TO BOB", "2026-03-01", 5), user("ZELLE TO ALICE", "2026-03-01", 9),
 		user("ZELLE TO NEWCOMER", "2026-03-01", 7),
 	}
-	if got, want := Backtest(txs, date("2026-01-01"), 2)[1], (Trial{Min: 2, Evaluated: 2, Correct: 1}); got != want {
+	if got, want := Backtest(txs, date("2026-01-01"), 2)[0], (Trial{Min: 2, Evaluated: 2, Correct: 1}); got != want {
 		t.Errorf("Backtest min 2 = %+v, want %+v", got, want)
 	}
 }

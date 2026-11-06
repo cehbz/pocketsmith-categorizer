@@ -41,8 +41,8 @@ type Proposal struct {
 }
 
 // Propose returns a proposal for each payee key whose user categorizations in txs are
-// unanimous and number least or more, unless covered reports that a layer already decides
-// one of them. A key is a payee's first two words, lengthened a word at a time while the
+// unanimous and number least or more, and at least minCategorizations, unless covered reports
+// that a layer already decides one of them. A key is a payee's first two words, lengthened a word at a time while the
 // categorizations behind it disagree. A proposal is dropped when its key has fewer than 4
 // letters or its pattern matches a transaction in txs categorized otherwise, whoever
 // categorized it. Proposals are sorted by key.
@@ -56,11 +56,15 @@ func Propose(txs []ledger.Transaction, least int, covered func(ledger.Transactio
 			decided = append(decided, judged{t, ws})
 		}
 	}
-	out := propose(decided, 2, least, covered)
+	out := propose(decided, 2, max(least, minCategorizations), covered)
 	out = slices.DeleteFunc(out, func(p Proposal) bool { return broad(p, txs) })
 	slices.SortFunc(out, func(a, b Proposal) int { return strings.Compare(a.Key, b.Key) })
 	return out
 }
+
+// minCategorizations is the fewest categorizations a proposal needs: the backtest scores only
+// payees that come back, so it can't see that a payee categorized once may never recur.
+const minCategorizations = 2
 
 // minKeyLetters is the fewest letters a proposal's key needs: a shorter one matches too much.
 const minKeyLetters = 4
@@ -120,7 +124,7 @@ type Trial struct {
 }
 
 // Backtest makes proposals from the user's categorizations dated before cutoff with each
-// minimum count from 1 to maxMin, and scores them against the user's categorizations from
+// minimum count from minCategorizations to maxMin, and scores them against the user's categorizations from
 // cutoff on.
 func Backtest(txs []ledger.Transaction, cutoff time.Time, maxMin int) []Trial {
 	var before, after []ledger.Transaction
@@ -133,8 +137,8 @@ func Backtest(txs []ledger.Transaction, cutoff time.Time, maxMin int) []Trial {
 			after = append(after, t)
 		}
 	}
-	trials := make([]Trial, 0, maxMin)
-	for least := 1; least <= maxMin; least++ {
+	var trials []Trial
+	for least := minCategorizations; least <= maxMin; least++ {
 		proposed := map[string]ledger.CategoryID{}
 		for _, p := range Propose(before, least, func(ledger.Transaction) bool { return false }) {
 			proposed[p.Key] = p.Category
