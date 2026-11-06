@@ -14,3 +14,4 @@
 - `cmd/categorize` and `cmd/cleanup` each carry the same `period` helper.
 - Investigate replacing PocketSmith: fetching from every source it aggregates, a UI, and the PocketSmith features the user relies on. Start from first principles by interviewing the user on what they use PocketSmith for, then design from whole cloth.
 - The learner reads the 751 transactions in plain "Big" as the user's categorizations and can learn "Big" for a payee with two or more of them. Refuse a category that has subcategories, or move the old transactions into subcategories.
+- The trips layer places a charge by its date, so a prepayment charged during one trip takes that trip's label. Airbnb payees carry the confirmation code and Airbnb's mail gives the stay's dates, so a mail reader could place those by stay date; other merchants' payees give no such link. Wrong labels are relabeled by hand for now.
