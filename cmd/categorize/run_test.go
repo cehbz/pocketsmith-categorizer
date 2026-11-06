@@ -140,7 +140,7 @@ func runners(t *testing.T) (func() runner, *countingTrips) {
 		for _, m := range []struct {
 			dst  **memo.Memo
 			name string
-		}{{&r.shown, "shown.json"}, {&r.judged, "judged.json"}, {&r.placed, "placed.json"}} {
+		}{{&r.shown, "shown.json"}, {&r.judged, "judged.json"}, {&r.placed, "placed.json"}, {&r.payees, "payees.json"}} {
 			var err error
 			if *m.dst, err = memo.Load(filepath.Join(dir, m.name)); err != nil {
 				t.Fatal(err)
@@ -148,6 +148,19 @@ func runners(t *testing.T) (func() runner, *countingTrips) {
 		}
 		return r
 	}, store
+}
+
+func TestARunRemembersThePayeesItRead(t *testing.T) {
+	s, _ := tripRun(t)
+	newRunner, _ := runners(t)
+	r := newRunner()
+	var out strings.Builder
+	if err := r.run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !r.payees.Seen("HOTEL FARCITY") || !r.payees.Seen("GROCER") {
+		t.Errorf("payees = %v, want the run's payees", r.payees.Keys())
+	}
 }
 
 func TestASecondRunOverTheFirstRunsOutputAppliesNothing(t *testing.T) {

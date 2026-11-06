@@ -41,17 +41,22 @@ func Load(path string) (*Memo, error) {
 // Seen reports whether key was shown.
 func (m *Memo) Seen(key string) bool { return m.seen[key] }
 
-// Add records key as shown.
-func (m *Memo) Add(key string) { m.seen[key] = true }
-
-// Save writes the memo, replacing the file atomically.
-func (m *Memo) Save() error {
+// Keys returns the keys, sorted.
+func (m *Memo) Keys() []string {
 	keys := make([]string, 0, len(m.seen))
 	for k := range m.seen {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	b, err := json.MarshalIndent(keys, "", "  ")
+	return keys
+}
+
+// Add records key as shown.
+func (m *Memo) Add(key string) { m.seen[key] = true }
+
+// Save writes the memo, replacing the file atomically.
+func (m *Memo) Save() error {
+	b, err := json.MarshalIndent(m.Keys(), "", "  ")
 	if err != nil {
 		return err
 	}

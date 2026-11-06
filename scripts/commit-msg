@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses a commit that adds a word from a real payee. The commit gate runs this hook first.
+exec "$HOME/.local/bin/categorize" leak-check "$1"

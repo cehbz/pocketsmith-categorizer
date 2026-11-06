@@ -196,6 +196,16 @@ func RulesPath(home string) string {
 	return filepath.Join(home, ".config", "pocketsmith-categorizer", "rules.toml")
 }
 
+// PayeesPath is the record of every payee a run has read, under home.
+func PayeesPath(home string) string {
+	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "payees.json")
+}
+
+// PublicWordsPath lists the words of real payees that may appear in the repository, under home.
+func PublicWordsPath(home string) string {
+	return filepath.Join(home, ".config", "pocketsmith-categorizer", "public-words.txt")
+}
+
 // MemoPath is the record of suggestions and proposals already shown, under home.
 func MemoPath(home string) string {
 	return filepath.Join(home, ".local", "state", "pocketsmith-categorizer", "shown.json")

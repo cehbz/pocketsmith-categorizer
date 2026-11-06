@@ -72,7 +72,7 @@ func scheduled(ctx context.Context, home, configPath, rulesPath, journalDir stri
 	for _, m := range []struct {
 		dst  **memo.Memo
 		path string
-	}{{&r.shown, config.MemoPath(home)}, {&r.judged, config.JudgedPath(home)}, {&r.placed, config.PlacedPath(home)}} {
+	}{{&r.shown, config.MemoPath(home)}, {&r.judged, config.JudgedPath(home)}, {&r.placed, config.PlacedPath(home)}, {&r.payees, config.PayeesPath(home)}} {
 		if *m.dst, err = memo.Load(m.path); err != nil {
 			return err
 		}
@@ -83,15 +83,15 @@ func scheduled(ctx context.Context, home, configPath, rulesPath, journalDir stri
 	return r.run(ctx, s, out)
 }
 
-// runner is what a run keeps between runs: what it showed, judged and placed, the evidence
-// read from mail, its journal and the trip list.
+// runner is what a run keeps between runs: what it showed, judged and placed, the payees it
+// read, the evidence read from mail, its journal and the trip list.
 type runner struct {
-	shown, judged, placed *memo.Memo
-	evidence              *evidence.Store
-	journal               journal.Store
-	trips                 trips.Store
-	lookback, history     int       // days back the categorizer re-decides its own work, and of history read
-	notify                *notifier // with notices on, delivers the report
+	shown, judged, placed, payees *memo.Memo
+	evidence                      *evidence.Store
+	journal                       journal.Store
+	trips                         trips.Store
+	lookback, history             int       // days back the categorizer re-decides its own work, and of history read
+	notify                        *notifier // with notices on, delivers the report
 }
 
 // run revises the rules file, decides, places, flags and applies a run's changes, lists the
@@ -125,6 +125,10 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	byID := make(map[int64]ledger.Transaction, len(txs))
 	for _, t := range txs {
 		byID[t.ID] = t
+		r.payees.Add(t.Payee)
+	}
+	if err := r.payees.Save(); err != nil {
+		return err
 	}
 
 	start := s.today.AddDate(0, 0, -r.lookback) // the categorizer changes nothing dated before it
