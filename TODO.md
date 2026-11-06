@@ -13,3 +13,4 @@
 - Each run reads the lookback year's Grab receipts one request per message, and lists every unmatched receipt again, including those whose charge hasn't posted yet.
 - `cmd/categorize` and `cmd/cleanup` each carry the same `period` helper.
 - Investigate replacing PocketSmith: fetching from every source it aggregates, a UI, and the PocketSmith features the user relies on. Start from first principles by interviewing the user on what they use PocketSmith for, then design from whole cloth.
+- The learner reads the 751 transactions in plain "Big" as the user's categorizations and can learn "Big" for a payee with two or more of them. Refuse a category that has subcategories, or move the old transactions into subcategories.
