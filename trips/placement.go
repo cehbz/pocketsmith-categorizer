@@ -35,12 +35,13 @@ func PlacedPrefix(id int64) string { return fmt.Sprintf("placed %d ", id) }
 type Placer struct {
 	Settings  Settings
 	List      List
-	Written   []Trip                 // every trip written to the list, deleted ones included
-	Seen      func(key string) bool  // the placements already made
-	Origins   map[int64]ledger.State // each placed transaction's state before the trips layer changed it
-	Corrected map[int64]bool         // transactions the user recategorized since the categorizer set them
-	From      time.Time              // the placement start: transactions dated before it are history only
-	Paid      map[int64]int64        // by credit, the charge that paid what it refunds, as a merchant's evidence says
+	Written   []Trip                      // every trip written to the list, deleted ones included
+	Seen      func(key string) bool       // the placements already made
+	Origins   map[int64]ledger.State      // each placed transaction's state before the trips layer changed it
+	Last      map[int64]categorize.Change // each transaction's change the journal last recorded the categorizer making
+	Corrected map[int64]bool              // transactions the user recategorized since the categorizer set them
+	From      time.Time                   // the placement start: transactions dated before it are history only
+	Paid      map[int64]int64             // by credit, the charge that paid what it refunds, as a merchant's evidence says
 }
 
 // Placing is what placing decided.
@@ -61,7 +62,8 @@ type placing struct {
 }
 
 // Place places each charge in a trip's dates and each booking, then each refund. A
-// transaction the trips layer placed that no longer places returns to its origin.
+// transaction the trips layer placed that no longer places returns to its origin. A charge
+// the user gave another listed trip's label stays as it is, whatever its date.
 // Transactions dated before the placement start are history only: placing reads them but
 // leaves them as they are.
 func (p Placer) Place(txs []Transaction) Placing {
@@ -87,10 +89,10 @@ func (p Placer) Place(txs []Transaction) Placing {
 		}
 		trip, in := p.List.At(t.Date)
 		switch {
+		case w.claimed(t, trip.Name):
+			w.set(t, t.State, "", categorize.Reason{}) // left as it is, whatever another layer decided
 		case in:
 			w.charge(t, trip, homeActive[trip.Name])
-		case w.claimed(t):
-			w.set(t, t.State, "", categorize.Reason{}) // left as it is, whatever another layer decided
 		case p.Settings.Kinds.Codes.IsBooking(t.Details.Code) && !named(t, p.Settings.Home):
 			w.booking(t)
 		default:
@@ -168,10 +170,20 @@ func (w *placing) booking(t Transaction) {
 	}
 }
 
-// claimed reports whether the user gave t a listed trip's label: a booking, or a charge the
-// trips layer doesn't own.
-func (w *placing) claimed(t Transaction) bool {
-	return slices.ContainsFunc(t.State.Labels, w.List.Named) && (t.State.HasLabel(Booking) || !t.State.HasLabel(Label))
+// claimed reports whether the user gave t a listed trip's label other than trip's, the trip
+// t is dated in ("" outside every trip): a booking's, or a label the trips layer didn't set
+// or didn't last place t under.
+func (w *placing) claimed(t Transaction, trip string) bool {
+	return slices.ContainsFunc(t.State.Labels, func(l string) bool {
+		return l != trip && w.List.Named(l) && (t.State.HasLabel(Booking) || !t.State.HasLabel(Label) || w.relabelled(t, l))
+	})
+}
+
+// relabelled reports whether the journal's last record for t placed it on a trip other than
+// trip: the trips layer's own label is no claim, the user's relabelling of it is.
+func (w *placing) relabelled(t Transaction, trip string) bool {
+	last, ok := w.Last[t.ID]
+	return ok && last.Source != sourcePrefix+trip
 }
 
 // refunds places each credit that follows a trip charge or a booking: it takes the charge's

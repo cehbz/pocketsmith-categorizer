@@ -158,7 +158,7 @@ func (r runner) run(ctx context.Context, s *session, out io.Writer) error {
 	}
 	hints := list.Hints(inferred, written)
 	list, listing := list.Update(trips.Trips(inferred), written)
-	pl := trips.Placer{Settings: s.trips, List: list, Written: written, Seen: placed.Seen, Origins: origins, Corrected: corrected(plan), From: start, Paid: ex.paid}.Place(card)
+	pl := trips.Placer{Settings: s.trips, List: list, Written: written, Seen: placed.Seen, Origins: origins, Last: last, Corrected: corrected(plan), From: start, Paid: ex.paid}.Place(card)
 	plan.Place(pl.Changes)
 	j := attend(txs, plan, s.attention, judged)
 	for id, rs := range pl.Reasons {

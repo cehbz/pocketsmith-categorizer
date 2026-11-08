@@ -257,6 +257,55 @@ func TestAUserCategorizedChargeIsRemappedOncePerVersionAndACorrectionStands(t *t
 	wantState(t, pl.Place([]Transaction{corrected}), 1, ledger.State{Category: 104, Labels: []string{Label, "trip-abroad"}})
 }
 
+var later = Trip{Name: "trip-later", From: date("2026-11-15"), To: date("2026-11-25")}
+
+func TestAChargeOnATripTheUserLabelledWithAnotherTripStays(t *testing.T) {
+	tickets := txn(1, "2026-10-10", -900, "AIRLINE", "3008", ledger.State{Category: 7, Labels: []string{"trip-later"}}) // bought on trip-abroad
+	p := placer(abroad, later).Place([]Transaction{tickets})
+	wantState(t, p, 1, tickets.State)
+	if len(p.Reasons[1]) != 0 || p.Keys[1] != "" {
+		t.Errorf("reasons %v, key %q; want none", p.Reasons[1], p.Keys[1])
+	}
+}
+
+func TestAChargeThePlacerPutOnItsTripAndTheUserMovedToAnotherStaysMoved(t *testing.T) {
+	onAbroad := ledger.State{Category: 101, Labels: []string{Label, "trip-abroad"}}
+	for _, labels := range [][]string{{Label, "trip-later"}, {"trip-later"}} { // the user kept or removed Label
+		tickets := txn(1, "2026-10-10", -900, "AIRLINE", "3008", ledger.State{Category: 101, Labels: labels})
+		tickets.Home = ledger.State{Category: 7}
+		pl := placer(abroad, later)
+		pl.Seen = seen(PlacedPrefix(1) + abroad.Version())
+		pl.Origins = map[int64]ledger.State{1: {Category: 7}}
+		pl.Last = map[int64]categorize.Change{1: {Charge: 1, Before: ledger.State{Category: 7}, After: onAbroad, Source: "trips: trip-abroad"}}
+		p := pl.Place([]Transaction{tickets})
+		wantState(t, p, 1, tickets.State)
+		if len(p.Reasons[1]) != 0 {
+			t.Errorf("labels %v: reasons %v; want none", labels, p.Reasons[1])
+		}
+	}
+}
+
+func TestAChargeThePlacerPutOnATripRedatedAwayFromItMovesToTheTripItIsIn(t *testing.T) {
+	onLater := ledger.State{Category: 102, Labels: []string{Label, "trip-later"}}
+	hotel := txn(1, "2026-10-10", -100, "HOTEL", "7011", onLater) // trip-later began on 2026-10-08 when it was placed
+	hotel.Home = ledger.State{Category: 7}
+	pl := placer(abroad, later)
+	pl.Origins = map[int64]ledger.State{1: {Category: 7}}
+	pl.Last = map[int64]categorize.Change{1: {Charge: 1, Before: ledger.State{Category: 7}, After: onLater, Source: "trips: trip-later"}}
+	p := pl.Place([]Transaction{hotel})
+	wantState(t, p, 1, ledger.State{Category: 102, Labels: []string{Label, "trip-abroad"}})
+}
+
+func TestABookingTheUserClaimedForATripStaysClaimed(t *testing.T) {
+	claimed := ledger.State{Category: 101, Labels: []string{Label, Booking, "trip-later"}}
+	booking := txn(1, "2026-11-01", -500, "UNITED", "3000", claimed)
+	booking.Home = ledger.State{Category: 7}
+	pl := placer(abroad, later)
+	pl.Seen = seen(PlacedPrefix(1) + Booking)
+	pl.Last = map[int64]categorize.Change{1: {Charge: 1, Before: ledger.State{Category: 7}, After: ledger.State{Category: 101, Labels: []string{Label, Booking}}, Source: "trips: trip-booking"}}
+	wantState(t, pl.Place([]Transaction{booking}), 1, claimed)
+}
+
 func TestAChargeLeavingEveryTripReturnsToItsOrigin(t *testing.T) {
 	shrunk := txn(1, "2026-10-31", -8, "RAMEN", "5812", ledger.State{Category: 103, Labels: []string{Label, "trip-abroad"}})
 	gone := txn(2, "2026-06-05", -8, "UDON", "5812", ledger.State{Category: 103, Labels: []string{Label, "trip-gone", "x"}})
