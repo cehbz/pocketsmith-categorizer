@@ -18,10 +18,16 @@ func inStore(id int64, d string, amount float64, payee, code string) Transaction
 // visits are in-store food charges at payee from id first on, one per day, each a tenth more
 // than the one before, so none is recurring.
 func visits(first int64, payee string, days ...string) []Transaction {
+	return coded(first, payee, "5812", days...)
+}
+
+// coded are in-store charges with code at payee from id first on, one per day, each a tenth
+// more than the one before, so none is recurring.
+func coded(first int64, payee, code string, days ...string) []Transaction {
 	var out []Transaction
 	amount := 10.0
 	for i, d := range days {
-		out = append(out, inStore(first+int64(i), d, -amount, payee, "5812"))
+		out = append(out, inStore(first+int64(i), d, -amount, payee, code))
 		amount *= 1.1
 	}
 	return out
@@ -130,7 +136,7 @@ func TestAPlaceChargedOnTwoTripsWithFourFifthsOfItsChargesOnThemIsAFavouriteAndN
 func TestHomeActivityIsAChargeAtASettledPlaceOrAtAPlaceNamingHome(t *testing.T) {
 	settled := visits(1, "CAFE ONE", "2025-02-10", "2025-03-10", "2025-04-10", "2025-06-10")
 	named := inStore(10, "2025-06-11", -5, "MART HOMETOWN", "5411")
-	away := inStore(11, "2025-06-12", -80, "INN FARCITY", "7011")
+	away := inStore(11, "2025-06-12", -9, "NOODLES FARCITY", "5812")
 	online := inStore(12, "2025-06-13", -5, "SHOP HOMETOWN", "5999")
 	online.Details.InStore = false
 	h := NewPlaces(append(settled, named, away, online), locals).Haunts(List{june})
@@ -159,5 +165,28 @@ func TestAMonthlyRunOfThreeWithin3PercentIsRecurring(t *testing.T) {
 		if p.Recurring(c) {
 			t.Errorf("charge %d (%s) is recurring", c.ID, c.Merchant())
 		}
+	}
+}
+
+func TestABookingIsAtNoPlaceSoIsNeverSettled(t *testing.T) {
+	// An airline paid online through a gateway the issuer reports as in-store, at home in
+	// three months.
+	tickets := coded(1, "2C2P THA", "3077", "2025-02-10", "2025-03-10", "2025-04-10")
+	p := NewPlaces(tickets, locals)
+	for _, c := range tickets {
+		if pl, ok := p.At(c); ok {
+			t.Errorf("booking %d is at place %q; want none", c.ID, pl)
+		}
+	}
+	if p.Haunts(List{june}).Settled(placeOf("2C2P THA")) {
+		t.Error("a payee charged only with bookings is settled")
+	}
+}
+
+func TestABookingOnATripAtAPayeeBookedFromHomeIsntAHomeCharge(t *testing.T) {
+	tickets := coded(1, "2C2P THA", "3077", "2025-02-10", "2025-03-10", "2025-04-10", "2025-06-10")
+	h := NewPlaces(tickets, locals).Haunts(List{june})
+	if c := h.Class(tickets[3]); c == HomeCharge {
+		t.Errorf("a booking on a trip is class %v; want not a home charge", c)
 	}
 }

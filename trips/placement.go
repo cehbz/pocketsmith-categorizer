@@ -109,8 +109,9 @@ func (p Placer) Place(txs []Transaction) Placing {
 }
 
 // charge places a charge in trip's dates. A home charge stays, as does a charge whose home
-// category stays home; an everywhere charge is in doubt while someone was home; any other is
-// a trip charge, put in its kind's Big subcategory. A charge the trips layer doesn't own is
+// category stays home; an everywhere charge other than a booking is in doubt while someone
+// was home, since a booking's date says nothing about where anyone was; any other is a trip
+// charge, put in its kind's Big subcategory. A charge the trips layer doesn't own is
 // placed once per version, so the user's later correction stands.
 func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	key := PlacedPrefix(t.ID) + trip.Version()
@@ -123,7 +124,7 @@ func (w *placing) charge(t Transaction, trip Trip, homeActive bool) {
 	case w.staysHome(t) || class == HomeCharge:
 		w.revert(t)
 		return
-	case class == EverywhereCharge && homeActive:
+	case class == EverywhereCharge && homeActive && !w.Settings.Kinds.Codes.IsBooking(t.Details.Code):
 		reverted := w.revert(t)
 		w.Keys[t.ID] = key
 		if (flagged || reverted) && !trip.To.Before(w.Settings.Start) {

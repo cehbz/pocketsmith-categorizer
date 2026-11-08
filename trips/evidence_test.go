@@ -17,27 +17,21 @@ func cardSigns(evidence []Evidence, place, d string) []Sign {
 	return out
 }
 
-// settledInn is a guesthouse charged in three months outside trips, and on 2025-05-10.
-func settledInn() []Transaction {
-	return []Transaction{inStore(1, "2025-01-10", -50, "GUESTHOUSE ONE", "7011"), inStore(2, "2025-02-10", -60, "GUESTHOUSE ONE", "7011"),
-		inStore(3, "2025-03-10", -70, "GUESTHOUSE ONE", "7011"), inStore(4, "2025-05-10", -80, "GUESTHOUSE ONE", "7011")}
+// settledCafe is a café charged in three months outside trips, and on 2025-05-10.
+func settledCafe() []Transaction {
+	return visits(1, "CAFE ONE", "2025-01-10", "2025-02-10", "2025-03-10", "2025-05-10")
 }
 
-func TestLodgingAwayIsEvidenceButNotAtASettledPlaceOrOneNamingHome(t *testing.T) {
-	txs := append(settledInn(), inStore(10, "2025-05-10", -90, "HOTEL HOMETOWN", "7011"), inStore(11, "2025-05-10", -95, "INN FARCITY", "7011"))
-	got := NewPlaces(txs, locals).Haunts(nil).Evidence(date("2025-01-01"))
-	if s := cardSigns(got, "INN FARCITY", "2025-05-10"); !slices.Equal(s, []Sign{Lodged, NewPlace}) {
-		t.Errorf("inn away: %v, want lodging and a new place", s)
-	}
-	for _, place := range []string{"GUESTHOUSE ONE", "HOTEL HOMETOWN"} {
-		if s := cardSigns(got, place, "2025-05-10"); len(s) > 0 {
-			t.Errorf("%s: %v, want no evidence", place, s)
-		}
+func TestABookingIsNoEvidence(t *testing.T) {
+	txs := []Transaction{inStore(10, "2025-05-10", -95, "INN FARCITY", "7011"), inStore(11, "2025-05-10", -60, "RAIL FARCITY", "4112"),
+		inStore(12, "2025-05-10", -400, "2C2P THA", "3077")}
+	if got := NewPlaces(txs, locals).Haunts(nil).Evidence(date("2025-01-01")); len(got) > 0 {
+		t.Errorf("evidence = %+v, want none", got)
 	}
 }
 
 func TestGroundTransportAtAPlaceIsEvidenceButGrabIsnt(t *testing.T) {
-	txs := append(settledInn(), inStore(10, "2025-05-10", -30, "RAIL FARCITY", "4112"), inStore(11, "2025-05-10", -3, "GRAB FARCITY", "4121"),
+	txs := append(settledCafe(), inStore(10, "2025-05-10", -30, "RAIL FARCITY", "4111"), inStore(11, "2025-05-10", -3, "GRAB FARCITY", "4121"),
 		inStore(12, "2025-05-10", -20, "BUS HOMETOWN", "4131"))
 	got := NewPlaces(txs, locals).Haunts(nil).Evidence(date("2025-01-01"))
 	if s := cardSigns(got, "RAIL FARCITY", "2025-05-10"); !slices.Equal(s, []Sign{GroundTransport, NewPlace}) {

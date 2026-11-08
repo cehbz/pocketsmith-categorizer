@@ -13,15 +13,19 @@ import (
 func TestReplayInfersTripsFromTheStartOfThePeriodAndReportsOnlyThePeriods(t *testing.T) {
 	card := ledger.Account{Name: "Card"}
 	all := []ledger.Transaction{
-		{ID: 1, Date: mustParse("2025-05-10"), Amount: -80, Payee: "INN FARCITY", Account: card},
-		{ID: 2, Date: mustParse("2026-01-20"), Amount: -90, Payee: "LODGE FARCITY", Account: card},
+		{ID: 1, Date: mustParse("2025-05-10"), Amount: -30, Payee: "RAIL FARCITY", Account: card},
+		{ID: 6, Date: mustParse("2025-05-11"), Amount: -9, Payee: "NOODLES FARCITY", Account: card},
+		{ID: 2, Date: mustParse("2026-01-20"), Amount: -40, Payee: "RAIL BIGCITY", Account: card},
+		{ID: 7, Date: mustParse("2026-01-21"), Amount: -10, Payee: "NOODLES BIGCITY", Account: card},
 		{ID: 3, Date: mustParse("2025-08-01"), Amount: -5, Payee: "GROCER", Account: card}, // settled at home between them
 		{ID: 4, Date: mustParse("2025-09-02"), Amount: -6, Payee: "GROCER", Account: card},
 		{ID: 5, Date: mustParse("2025-10-03"), Amount: -7, Payee: "GROCER", Account: card},
 	}
 	recs := []trips.Record{
-		{Account: "Card", Date: mustParse("2025-05-10"), Amount: 80, Name: "INN FARCITY", Merchant: "Inn", Code: "7011", InStore: true},
-		{Account: "Card", Date: mustParse("2026-01-20"), Amount: 90, Name: "LODGE FARCITY", Merchant: "Lodge", Code: "7011", InStore: true},
+		{Account: "Card", Date: mustParse("2025-05-10"), Amount: 30, Name: "RAIL FARCITY", Merchant: "Rail Farcity", Code: "4111", InStore: true},
+		{Account: "Card", Date: mustParse("2025-05-11"), Amount: 9, Name: "NOODLES FARCITY", Merchant: "Noodles Farcity", Code: "5812", InStore: true},
+		{Account: "Card", Date: mustParse("2026-01-20"), Amount: 40, Name: "RAIL BIGCITY", Merchant: "Rail Bigcity", Code: "4111", InStore: true},
+		{Account: "Card", Date: mustParse("2026-01-21"), Amount: 10, Name: "NOODLES BIGCITY", Merchant: "Noodles Bigcity", Code: "5812", InStore: true},
 		{Account: "Card", Date: mustParse("2025-08-01"), Amount: 5, Name: "GROCER", Merchant: "Grocer", Code: "5411", InStore: true},
 		{Account: "Card", Date: mustParse("2025-09-02"), Amount: 6, Name: "GROCER", Merchant: "Grocer", Code: "5411", InStore: true},
 		{Account: "Card", Date: mustParse("2025-10-03"), Amount: 7, Name: "GROCER", Merchant: "Grocer", Code: "5411", InStore: true},
@@ -32,7 +36,7 @@ func TestReplayInfersTripsFromTheStartOfThePeriodAndReportsOnlyThePeriods(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []trips.Trip{{Name: "trip-2026-01-20", From: mustParse("2026-01-20"), To: mustParse("2026-01-20")}}
+	want := []trips.Trip{{Name: "trip-2026-01-20", From: mustParse("2026-01-20"), To: mustParse("2026-01-21")}}
 	if !reflect.DeepEqual(trips.Trips(got), want) {
 		t.Errorf("replayTrips = %+v, want %+v", got, want)
 	}

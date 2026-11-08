@@ -31,7 +31,6 @@ const (
 	FlightBack                      // a flight returning home
 	Flight                          // any other flight
 	Stay                            // a day of a stay away
-	Lodged                          // lodging at a place that isn't settled and doesn't name home
 	GroundTransport                 // ground transport at a place
 	NewPlace                        // a charge at a place never charged before
 	FavouritePlace                  // a charge at a favourite
@@ -47,8 +46,6 @@ func (s Sign) String() string {
 		return "flight"
 	case Stay:
 		return "stay"
-	case Lodged:
-		return "lodging"
 	case GroundTransport:
 		return "ground transport"
 	case NewPlace:
@@ -67,16 +64,13 @@ type Evidence struct {
 	What   string // the calendar event's title or the card charge's place
 }
 
-// The card's travel evidence codes.
-var (
-	lodgingCodes   = []Range{{3501, 3999}, {7011, 7011}}
-	transportCodes = []Range{{4111, 4112}, {4121, 4121}, {4131, 4131}, {4789, 4789}}
-)
+// transportCodes are the card's ground transport codes: local transport, which is at a place,
+// unlike a booking.
+var transportCodes = []Range{{4111, 4111}, {4121, 4121}, {4131, 4131}, {4789, 4789}}
 
-// Evidence is the card's travel evidence in the place charges dated on or after from:
-// lodging at a place that isn't settled and doesn't name home; ground transport at a place;
-// and a charge at a place that isn't settled and doesn't name home, on the day it was first
-// charged or when it is a favourite.
+// Evidence is the card's travel evidence in the place charges dated on or after from: ground
+// transport at a place, and a charge at a place that isn't settled and doesn't name home, on
+// the day it was first charged or when it is a favourite.
 func (h Haunts) Evidence(from time.Time) []Evidence {
 	var out []Evidence
 	for pl, cs := range h.places.charges {
@@ -87,9 +81,6 @@ func (h Haunts) Evidence(from time.Time) []Evidence {
 			code, _ := strconv.Atoi(t.Details.Code)
 			away := !h.settled[pl] && !named(t, h.places.home)
 			add := func(s Sign) { out = append(out, Evidence{Day: t.Date, Source: FromCard, Sign: s, What: string(pl)}) }
-			if away && contains(lodgingCodes, code) {
-				add(Lodged)
-			}
 			if contains(transportCodes, code) {
 				add(GroundTransport)
 			}

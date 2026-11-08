@@ -90,7 +90,7 @@ func (c *countingTrips) Save(list trips.List, written []trips.Trip) error {
 }
 
 // tripRun is a session over a card with a three-day trip from 2026-10-05: two in-store hotel
-// nights and a new restaurant, a hotel refund after it, a flight booked before it and a
+// nights, a new restaurant and two taxi rides, a hotel refund after it, a flight booked before it and a
 // grocer at home around it. Two new cafés on consecutive days at the start of the history
 // are inside the inference warm-up, so they make no trip.
 func tripRun(t *testing.T) (*session, *fakeLedger) {
@@ -105,6 +105,7 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 		tx(4, "2026-10-05", -120, "HOTEL FARCITY"), tx(5, "2026-10-06", -12, "NOODLES FARCITY"), tx(6, "2026-10-07", -125, "HOTEL FARCITY"),
 		tx(7, "2026-10-15", 125, "HOTEL FARCITY"), tx(8, "2026-09-01", -400, "AIRLINE"),
 		tx(9, "2025-12-01", -10, "CAFE ALPHA FARCITY"), tx(10, "2025-12-02", -10, "CAFE BETA FARCITY"),
+		tx(21, "2026-10-05", -8, "TAXI FARCITY"), tx(22, "2026-10-07", -9, "TAXI FARCITY"),
 	} {
 		l.txs[x.ID] = x
 	}
@@ -116,6 +117,7 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 		rec("2026-10-07", 125, "HOTEL FARCITY", "Hotel Farcity", "7011", true), rec("2026-10-15", -125, "HOTEL FARCITY", "Hotel Farcity", "7011", false),
 		rec("2026-09-01", 400, "AIRLINE", "Airline", "4511", false),
 		rec("2025-12-01", 10, "CAFE ALPHA FARCITY", "Cafe Alpha", "5812", true), rec("2025-12-02", 10, "CAFE BETA FARCITY", "Cafe Beta", "5812", true),
+		rec("2026-10-05", 8, "TAXI FARCITY", "Taxi Farcity", "4121", true), rec("2026-10-07", 9, "TAXI FARCITY", "Taxi Farcity", "4121", true),
 	}}
 	start := mustParse("2026-10-01")
 	big := map[trips.Kind]ledger.CategoryID{trips.Transport: 101, trips.Lodging: 102, trips.Food: 103, trips.Discretionary: 104, trips.Cash: 105}
@@ -350,9 +352,9 @@ func TestARunReportsTheTripsItAddsWithTheirEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "\nTrips Added\n  trip-2026-10-05 · Oct 5 – Oct 7\n" +
-		"    card  lodging    HOTEL FARCITY    Oct 5 – Oct 7\n" +
-		"    card  new place  HOTEL FARCITY    Oct 5\n" +
-		"    card  new place  NOODLES FARCITY  Oct 6\n"
+		"    card  ground transport  TAXI FARCITY     Oct 5 – Oct 7\n" +
+		"    card  new place         TAXI FARCITY     Oct 5\n" +
+		"    card  new place         NOODLES FARCITY  Oct 6\n"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("report lacks %q:\n%s", want, out.String())
 	}

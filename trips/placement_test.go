@@ -72,7 +72,7 @@ func unchanged(t *testing.T, p Placing, id int64) {
 	}
 }
 
-func TestAChargeAtANewPlaceOnATripGoesToItsKindsBigSubcategory(t *testing.T) {
+func TestAChargeOnATripGoesToItsKindsBigSubcategory(t *testing.T) {
 	p := placer(abroad).Place([]Transaction{txn(1, "2026-10-10", -100, "HOTEL", "7011", ledger.State{Category: 7, NeedsReview: true})})
 	wantState(t, p, 1, ledger.State{Category: 102, NeedsReview: true, Labels: []string{Label, "trip-abroad"}})
 	if c, _ := placed(p, 1); c.Source != "trips: trip-abroad" || c.Reason != (categorize.Reason{Why: categorize.OnTrip, Trip: "trip-abroad"}) {
@@ -237,6 +237,22 @@ func TestEverywhereChargesAreInDoubtWhenSomeoneWasHome(t *testing.T) {
 	}
 	if !slices.Equal(p.Reasons[1], []string{Unsure}) || !slices.Equal(p.Reasons[2], []string{Unsure}) || len(p.Reasons[3]) > 0 {
 		t.Errorf("reasons = %v; want the shop's and Grab's unsure, the home cafe's none", p.Reasons)
+	}
+}
+
+func TestABookingOnATripIsATripChargeWhenSomeoneWasHome(t *testing.T) {
+	// A booking's date says nothing about where anyone was: a hotel paid on the trip and
+	// tickets bought online on it are placed though the café at home was charged on it too.
+	p := placer(abroad, past).Place(append([]Transaction{
+		txn(1, "2026-10-10", -100, "HOTEL", "7011", ledger.State{Category: 7}),
+		online(2, "2026-10-12", -300, "2C2P THA", "3077", ledger.State{Category: 7}),
+	}, homeCafe()...))
+	wantState(t, p, 1, ledger.State{Category: 102, Labels: []string{Label, "trip-abroad"}})
+	wantState(t, p, 2, ledger.State{Category: 101, Labels: []string{Label, "trip-abroad"}})
+	for _, id := range []int64{1, 2} {
+		if !slices.Equal(p.Reasons[id], []string{Placed}) {
+			t.Errorf("transaction %d: reasons %v; want placed, not unsure", id, p.Reasons[id])
+		}
 	}
 }
 

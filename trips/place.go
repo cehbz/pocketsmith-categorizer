@@ -51,12 +51,12 @@ type Places struct {
 }
 
 // NewPlaces finds the places of the charges in txs: an in-store card charge whose merchant
-// code isn't digital is made at a place, and so is a withdrawal. Grab and recurring charges
-// are never at a place.
+// code isn't digital is made at a place, and so is a withdrawal. Grab, recurring charges and
+// bookings are never at a place: a booking's code says what was bought, not where.
 func NewPlaces(txs []Transaction, s Settings) *Places {
 	p := &Places{home: s.Home, at: map[int64]Place{}, charges: map[Place][]Transaction{}, first: map[Place]time.Time{}, recurring: recurringCharges(txs)}
 	for _, t := range txs {
-		if !t.Charge() || p.recurring[t.ID] || everywhere(t, s.Everywhere) {
+		if !t.Charge() || p.recurring[t.ID] || everywhere(t, s.Everywhere) || s.Kinds.Codes.IsBooking(t.Details.Code) {
 			continue
 		}
 		if s.IsCash(t) || t.Details.InStore && !digital(t.Details.Code) {
@@ -133,7 +133,7 @@ type Class int
 const (
 	HomeCharge       Class = iota + 1 // recurring, naming home, or at a settled place
 	TripCharge                        // at any other place
-	EverywhereCharge                  // at no place: online, digital, Grab, unmatched
+	EverywhereCharge                  // at no place: online, digital, Grab, a booking, unmatched
 )
 
 // Class classifies t: a recurring charge or one naming home, however paid, is a home

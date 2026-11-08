@@ -68,16 +68,15 @@ func (r run) has(signs ...Sign) bool {
 func (r run) home() bool { return r[len(r)-1].Sign == FlightBack }
 
 // away reports whether r is a trip: it has calendar evidence, or new or favourite places
-// with lodging or ground transport. A run on a single day without a stay or lodging is a
-// day trip, which is home.
+// with ground transport. A run on a single day without a stay is a day trip, which is home.
 func (r run) away() bool {
-	if r.first().Equal(r.last()) && !r.has(Stay, Lodged) {
+	if r.first().Equal(r.last()) && !r.has(Stay) {
 		return false
 	}
 	if slices.ContainsFunc(r, func(e Evidence) bool { return e.Source == FromCalendar }) {
 		return true
 	}
-	return r.has(NewPlace, FavouritePlace) && r.has(Lodged, GroundTransport)
+	return r.has(NewPlace, FavouritePlace) && r.has(GroundTransport)
 }
 
 // assemble finds the trips in evidence. Evidence no more than evidenceGap days apart is one
