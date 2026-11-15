@@ -301,6 +301,16 @@ func TestAPlacedTransactionIsNoLongerUndecided(t *testing.T) {
 	}
 }
 
+func TestAnUndecidedTransactionAPlacementRevertsIsListedAsReverted(t *testing.T) {
+	onTrip := ledger.State{Category: 7, NeedsReview: true, Labels: []string{"auto-trip", "trip-t"}}
+	p := Plan{Undecided: []ledger.Transaction{{ID: 1, State: onTrip}, {ID: 2, State: ledger.State{Category: 4, NeedsReview: true}}}}
+	reverted := ledger.State{Category: 3, NeedsReview: true}
+	p.Place([]categorize.Change{{Charge: 1, Before: onTrip, After: reverted, Source: "revert trips"}})
+	if len(p.Undecided) != 2 || !p.Undecided[0].State.Equal(reverted) || p.Undecided[1].State.Category != 4 {
+		t.Errorf("undecided = %+v, want 1 as reverted and 2 as it was", p.Undecided)
+	}
+}
+
 func TestATentativeDecisionLeavesReviewAsItWas(t *testing.T) {
 	tentative := layerFunc(func(ledger.Transaction) (Decision, bool) {
 		return Decision{Category: 9, Label: "auto-rule", Source: "r9", Tentative: true}, true

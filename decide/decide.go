@@ -144,14 +144,16 @@ func flagged(s ledger.State, reasons []string) ledger.State {
 // Place takes the trips layer's placements: a planned change to the same transaction takes
 // the placement's After, Source and Reason, a change that leaves its transaction as it was is
 // dropped, and any other placement becomes a change of its own. A transaction placed in a
-// category the categorizer owns is no longer undecided.
+// category the categorizer owns is no longer undecided; any other stays undecided as placed.
 func (p *Plan) Place(placed []categorize.Change) {
 	at := map[int64]int{}
 	for i, c := range p.Changes {
 		at[c.Charge] = i
 	}
 	decided := map[int64]bool{}
+	after := map[int64]ledger.State{}
 	for _, pl := range placed {
+		after[pl.Charge] = pl.After
 		if i, ok := at[pl.Charge]; ok {
 			p.Changes[i].After, p.Changes[i].Source, p.Changes[i].Reason = pl.After, pl.Source, pl.Reason
 		} else {
@@ -164,4 +166,9 @@ func (p *Plan) Place(placed []categorize.Change) {
 	}
 	p.Changes = slices.DeleteFunc(p.Changes, func(c categorize.Change) bool { return c.After.Equal(c.Before) })
 	p.Undecided = slices.DeleteFunc(p.Undecided, func(t ledger.Transaction) bool { return decided[t.ID] })
+	for i, t := range p.Undecided {
+		if s, ok := after[t.ID]; ok {
+			p.Undecided[i].State = s
+		}
+	}
 }
