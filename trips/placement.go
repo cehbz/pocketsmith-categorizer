@@ -28,6 +28,10 @@ const (
 // IsSource reports whether source is a trips placement's.
 func IsSource(source string) bool { return strings.HasPrefix(source, sourcePrefix) }
 
+// IsRevert reports whether source is a revert's: a transaction the trips layer placed
+// returned to its origin.
+func IsRevert(source string) bool { return source == revertSource }
+
 // PlacedPrefix begins the key of every placement of transaction id.
 func PlacedPrefix(id int64) string { return fmt.Sprintf("placed %d ", id) }
 
@@ -346,7 +350,8 @@ func tripReason(trip string) categorize.Reason {
 }
 
 // revert returns a transaction the trips layer placed to its origin; without one, it drops
-// the trips layer's labels.
+// the trips layer's labels. It stays in review if its origin was, or if it is in review for a
+// reason other than the trips layer's own.
 func (w *placing) revert(t Transaction) bool {
 	if !t.State.HasLabel(Label) {
 		return false
@@ -355,7 +360,7 @@ func (w *placing) revert(t Transaction) bool {
 	if !ok {
 		origin = ledger.State{Category: t.State.Category}
 	}
-	after := ledger.State{Category: origin.Category, NeedsReview: origin.NeedsReview || t.State.NeedsReview, Labels: slices.Clone(origin.Labels)}
+	after := ledger.State{Category: origin.Category, NeedsReview: origin.NeedsReview || t.State.NeedsReview && !t.State.HasLabel(Placed) && !t.State.HasLabel(Unsure), Labels: slices.Clone(origin.Labels)}
 	for _, l := range w.strip(t.State.UserLabels()) {
 		if l != Placed && l != Unsure && !after.HasLabel(l) {
 			after.Labels = append(after.Labels, l)

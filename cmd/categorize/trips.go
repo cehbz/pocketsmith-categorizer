@@ -44,6 +44,18 @@ func tripTransactions(txs []ledger.Transaction, recs []trips.Record, plan decide
 	return out
 }
 
+// reverted is each transaction a placement reverted, as the revert leaves it.
+func reverted(placed []categorize.Change, byID map[int64]ledger.Transaction) []ledger.Transaction {
+	var out []ledger.Transaction
+	for _, c := range placed {
+		if t, ok := byID[c.Charge]; ok && trips.IsRevert(c.Source) {
+			t.State = c.After
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // corrected is the set of transactions the plan corrects.
 func corrected(plan decide.Plan) map[int64]bool {
 	out := map[int64]bool{}

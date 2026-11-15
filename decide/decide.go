@@ -172,3 +172,27 @@ func (p *Plan) Place(placed []categorize.Change) {
 		}
 	}
 }
+
+// Redecide asks the layers about each transaction a placement reverted, as the revert leaves
+// it: a decision replaces the revert's After, Source and Reason, and a transaction no layer
+// decides that the revert leaves in review is undecided once.
+func (p *Plan) Redecide(reverted []ledger.Transaction, layers []Layer) {
+	again := Make(reverted, layers, nil, time.Time{})
+	at := map[int64]int{}
+	for i, c := range p.Changes {
+		at[c.Charge] = i
+	}
+	decided := map[int64]bool{}
+	for _, c := range again.Changes {
+		decided[c.Charge] = true
+		if i, ok := at[c.Charge]; ok {
+			p.Changes[i].After, p.Changes[i].Source, p.Changes[i].Reason = c.After, c.Source, c.Reason
+		}
+	}
+	p.Undecided = slices.DeleteFunc(p.Undecided, func(t ledger.Transaction) bool { return decided[t.ID] })
+	for _, t := range again.Undecided {
+		if !slices.ContainsFunc(p.Undecided, func(u ledger.Transaction) bool { return u.ID == t.ID }) {
+			p.Undecided = append(p.Undecided, t)
+		}
+	}
+}

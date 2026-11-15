@@ -536,7 +536,7 @@ func TestATripWithdrawalGoesToBigCashAndItsRebateFollowsIt(t *testing.T) {
 	}
 }
 
-func TestAPlacedChargeThatBecomesInDoubtIsRevertedWithTheUnsureReasonAndKeepsItsReviewFlag(t *testing.T) {
+func TestAPlacedChargeThatBecomesInDoubtIsRevertedWithTheUnsureReason(t *testing.T) {
 	placedState := ledger.State{Category: 103, NeedsReview: true, Labels: []string{Label, "trip-abroad", Placed}}
 	mart := online(1, "2026-10-10", -3, "MART ONLINE", "5499", placedState)
 	mart.Home = ledger.State{Category: 7}
@@ -545,17 +545,33 @@ func TestAPlacedChargeThatBecomesInDoubtIsRevertedWithTheUnsureReasonAndKeepsIts
 	pl.Seen = seen(PlacedPrefix(1) + abroad.Version())
 	pl.Origins = map[int64]ledger.State{1: {Category: 7}}
 	p := pl.Place(txs)
-	wantState(t, p, 1, ledger.State{Category: 7, NeedsReview: true})
-	if c, _ := placed(p, 1); c.Source != "revert trips" || !slices.Equal(p.Reasons[1], []string{Unsure}) {
+	wantState(t, p, 1, ledger.State{Category: 7})
+	if c, _ := placed(p, 1); !IsRevert(c.Source) || !slices.Equal(p.Reasons[1], []string{Unsure}) {
 		t.Errorf("source %q, reasons %v; want a revert with the unsure reason", c.Source, p.Reasons[1])
 	}
 }
 
 func TestARevertKeepsTheReviewFlagAndLabelsTheUserAddedSincePlacement(t *testing.T) {
-	shrunk := txn(1, "2026-10-31", -8, "RAMEN", "5812", ledger.State{Category: 103, NeedsReview: true, Labels: []string{Label, "trip-abroad", Placed, "mine"}})
+	shrunk := txn(1, "2026-10-31", -8, "RAMEN", "5812", ledger.State{Category: 103, NeedsReview: true, Labels: []string{Label, "trip-abroad", "mine"}})
 	pl := placer(abroad)
 	pl.Origins = map[int64]ledger.State{1: {Category: 5, Labels: []string{"x"}}}
 	wantState(t, pl.Place([]Transaction{shrunk}), 1, ledger.State{Category: 5, NeedsReview: true, Labels: []string{"x", "mine"}})
+}
+
+func TestARevertDropsTheReviewFlagTheTripsLayersOwnReasonRaised(t *testing.T) {
+	for _, reason := range []string{Placed, Unsure} {
+		shrunk := txn(1, "2026-10-31", -8, "RAMEN", "5812", ledger.State{Category: 103, NeedsReview: true, Labels: []string{Label, "trip-abroad", reason, "mine"}})
+		pl := placer(abroad)
+		pl.Origins = map[int64]ledger.State{1: {Category: 5, Labels: []string{"x"}}}
+		wantState(t, pl.Place([]Transaction{shrunk}), 1, ledger.State{Category: 5, Labels: []string{"x", "mine"}})
+	}
+}
+
+func TestARevertKeepsTheReviewFlagItsOriginHad(t *testing.T) {
+	shrunk := txn(1, "2026-10-31", -8, "RAMEN", "5812", ledger.State{Category: 103, NeedsReview: true, Labels: []string{Label, "trip-abroad", Placed}})
+	pl := placer(abroad)
+	pl.Origins = map[int64]ledger.State{1: {Category: 5, NeedsReview: true}}
+	wantState(t, pl.Place([]Transaction{shrunk}), 1, ledger.State{Category: 5, NeedsReview: true})
 }
 
 func TestPlacingItsOwnOutputAgainChangesNothing(t *testing.T) {

@@ -296,6 +296,40 @@ func TestATripTheUserDeletedReturnsItsChargesToWhereTheyWere(t *testing.T) {
 	}
 }
 
+func TestATripTheUserDeletedSettlesInTheRunThatRevertsIt(t *testing.T) {
+	newRunner, store := runners(t)
+	s, l := tripRun(t)
+	noodles := l.txs[5]
+	noodles.State.NeedsReview = true
+	l.txs[5] = noodles
+	first(t, newRunner, s)
+	path := filepath.Join(t.TempDir(), "rules.toml")
+	if err := os.WriteFile(path, []byte("[[rule]]\npayee = \"NOODLES FARCITY\"\ncategory = \"Travel\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := rules.Load(path, []ledger.Category{{ID: 30, Title: "Travel"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.rules = rs
+	store.list = nil // deleted from the list
+	var out strings.Builder
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.txs[5].State; got.Category != 30 || got.HasLabel(trips.Label) || got.HasLabel(trips.Placed) {
+		t.Errorf("restaurant after the trip was deleted: %+v; want the rule's category without the trip's labels\n%s", got, out.String())
+	}
+	l.updates = 0
+	out.Reset()
+	if err := newRunner().run(context.Background(), s, &out); err != nil {
+		t.Fatal(err)
+	}
+	if l.updates != 0 {
+		t.Errorf("run after the revert: %d updates %v; want none\n%s", l.updates, l.updated, out.String())
+	}
+}
+
 func TestAListedTripChangesNothingInTheLedgerAndIsStillRecordedUnderARun(t *testing.T) {
 	newRunner, store := runners(t)
 	s, l := tripRun(t)

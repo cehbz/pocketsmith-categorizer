@@ -336,3 +336,37 @@ func TestACorrectionDropsApplyAll(t *testing.T) {
 		t.Errorf("corrections = %+v; want the user's category and label x alone", p.Corrections)
 	}
 }
+
+func TestARevertedTransactionTakesTheDecisionTheLayersMakeOnItsRevertedState(t *testing.T) {
+	onTrip := ledger.State{Category: 7, NeedsReview: true, Labels: []string{"auto-trip", "trip-t", "attention-trip"}}
+	reverted := ledger.State{Category: 3, NeedsReview: true}
+	p := Plan{Changes: []categorize.Change{{Charge: 1, Before: onTrip, After: reverted, Source: "revert trips"}}}
+	p.Redecide([]ledger.Transaction{tx(1, "2026-02-01", reverted)}, []Layer{to9})
+	want := ledger.State{Category: 9, Labels: []string{"auto-rule"}}
+	if len(p.Changes) != 1 || !p.Changes[0].Before.Equal(onTrip) || !p.Changes[0].After.Equal(want) || p.Changes[0].Source != "r9" || p.Changes[0].Reason != r9 {
+		t.Errorf("changes = %+v, want from the trip state to %+v by r9", p.Changes, want)
+	}
+}
+
+func TestARevertedTransactionNoLayerDecidesKeepsItsRevertAndIsUndecidedOnce(t *testing.T) {
+	onTrip := ledger.State{Category: 7, NeedsReview: true, Labels: []string{"auto-trip", "trip-t"}}
+	reverted := ledger.State{Category: 3, NeedsReview: true}
+	revert := categorize.Change{Charge: 1, Before: onTrip, After: reverted, Source: "revert trips"}
+	p := Plan{Changes: []categorize.Change{revert, {Charge: 2, Before: onTrip, After: reverted, Source: "revert trips"}}, Undecided: []ledger.Transaction{tx(1, "2026-02-01", reverted)}}
+	p.Redecide([]ledger.Transaction{tx(1, "2026-02-01", reverted), tx(2, "2026-02-01", reverted)}, []Layer{abstain})
+	if len(p.Changes) != 2 || p.Changes[0].Source != "revert trips" || !p.Changes[0].After.Equal(reverted) {
+		t.Errorf("changes = %+v, want the reverts as they were", p.Changes)
+	}
+	if len(p.Undecided) != 2 || p.Undecided[0].ID != 1 || p.Undecided[1].ID != 2 || !p.Undecided[1].State.Equal(reverted) {
+		t.Errorf("undecided = %+v, want 1 and 2 once each, as reverted", p.Undecided)
+	}
+}
+
+func TestAnUndecidedTransactionTheLayersDecideOnceRevertedIsNoLongerUndecided(t *testing.T) {
+	reverted := ledger.State{Category: 3, NeedsReview: true}
+	p := Plan{Changes: []categorize.Change{{Charge: 1, Before: ledger.State{Category: 7, NeedsReview: true, Labels: []string{"auto-trip"}}, After: reverted, Source: "revert trips"}}, Undecided: []ledger.Transaction{tx(1, "2026-02-01", reverted)}}
+	p.Redecide([]ledger.Transaction{tx(1, "2026-02-01", reverted)}, []Layer{to9})
+	if len(p.Undecided) != 0 {
+		t.Errorf("undecided = %+v, want none", p.Undecided)
+	}
+}
