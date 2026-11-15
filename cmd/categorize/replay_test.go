@@ -37,7 +37,7 @@ func TestReplayInfersTripsFromTheStartOfThePeriodAndReportsOnlyThePeriods(t *tes
 		t.Fatal(err)
 	}
 	want := []trips.Trip{{Name: "trip-2026-01-20", From: mustParse("2026-01-20"), To: mustParse("2026-01-21")}}
-	if !reflect.DeepEqual(trips.Trips(got), want) {
+	if !reflect.DeepEqual(possibleTrips(got), want) {
 		t.Errorf("replayTrips = %+v, want %+v", got, want)
 	}
 }
@@ -66,7 +66,19 @@ func TestReplayReportsATripThatBeganBeforeThePeriodWhereItsWarmUpEnded(t *testin
 		t.Fatal(err)
 	}
 	want := []trips.Trip{{Name: "trip-2025-03-03", From: mustParse("2025-03-03"), To: mustParse("2026-01-03")}}
-	if !reflect.DeepEqual(trips.Trips(got), want) {
+	if !reflect.DeepEqual(possibleTrips(got), want) {
 		t.Errorf("replayTrips = %+v, want %+v", got, want)
 	}
+}
+
+// possibleTrips are the inferred possible trips: the replay fixtures have card evidence only,
+// so every trip they infer is one.
+func possibleTrips(inferred []trips.Inferred) []trips.Trip {
+	var out []trips.Trip
+	for _, i := range inferred {
+		if i.Possible {
+			out = append(out, i.Trip)
+		}
+	}
+	return out
 }

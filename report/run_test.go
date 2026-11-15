@@ -478,3 +478,24 @@ func TestWriteRunHTMLGolden(t *testing.T) {
 	}
 	golden(t, "run.html", b.String())
 }
+
+func TestAPossibleTripHintNamesNoTripAndSaysPossible(t *testing.T) {
+	possible := reportInferred("trip-2026-03-10", false)
+	possible.Possible = true
+	got, ok := body(write(t, Run{Hints: []trips.Hint{{Inferred: possible}}}), "Trip Hints")
+	if want := "possible trip · Mar 10 – Mar 14"; !ok || !strings.HasPrefix(got, want) {
+		t.Errorf("Trip Hints = %q, want it to begin %q", got, want)
+	}
+}
+
+func TestWriteReplayMarksAPossibleTrip(t *testing.T) {
+	possible := reportInferred("trip-2026-03-10", false)
+	possible.Possible = true
+	var b strings.Builder
+	if err := WriteReplay(&b, Replay{Trips: []trips.Inferred{possible}}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "trips inferred (1):\n  possible trip-2026-03-10 2026-03-10..2026-03-14\n"; !strings.Contains(b.String(), want) {
+		t.Errorf("report lacks %q:\n%s", want, b.String())
+	}
+}

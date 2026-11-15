@@ -125,3 +125,18 @@ func TestAnInferredTripReachingBeyondAnEditedTripIsAHint(t *testing.T) {
 		t.Errorf("Hints = %+v, want %+v", got, want)
 	}
 }
+
+func TestAPossibleTripOverlappingNoTripIsAHintAndOneOverlappingATripIsNot(t *testing.T) {
+	listed := Trip{Name: "trip-farcity", From: date("2026-07-01"), To: date("2026-07-05")}
+	gone := Trip{Name: "trip-2026-09-01", From: date("2026-09-01"), To: date("2026-09-03")} // written, since deleted
+	inferred := []Inferred{
+		{Trip: Trip{Name: "trip-2026-07-04", From: date("2026-07-04"), To: date("2026-07-08")}, Possible: true},
+		{Trip: Trip{Name: "trip-2026-09-02", From: date("2026-09-02"), To: date("2026-09-04")}, Possible: true},
+		{Trip: Trip{Name: "trip-2026-11-06", From: date("2026-11-06"), To: date("2026-11-12")}, Possible: true},
+	}
+	got := List{listed}.Hints(inferred, []Trip{gone})
+	want := []Hint{{Inferred: inferred[2]}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Hints = %+v, want only the possible trip overlapping nothing", got)
+	}
+}

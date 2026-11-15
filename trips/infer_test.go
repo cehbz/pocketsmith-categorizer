@@ -26,6 +26,17 @@ func infer(txs []Transaction, calendar ...Evidence) []Trip {
 	return Trips(Infer(txs, calendar, nil, locals, date("2025-01-01")))
 }
 
+// possible infers the possible trips from txs and calendar for locals, with no trips listed.
+func possible(txs []Transaction, calendar ...Evidence) []Trip {
+	var out []Trip
+	for _, i := range Infer(txs, calendar, nil, locals, date("2025-01-01")) {
+		if i.Possible {
+			out = append(out, i.Trip)
+		}
+	}
+	return out
+}
+
 func trip(from, to string) Trip { return Trip{Name: "trip-" + from, From: date(from), To: date(to)} }
 
 func wantTrips(t *testing.T, got []Trip, want ...Trip) {
@@ -44,7 +55,7 @@ func TestACalendarFlightOrStayMakesATripThatKeepsItsEvidence(t *testing.T) {
 	wantTrips(t, infer(nil, stay("2025-04-01", "2025-04-03", "Stay at Inn Farcity")...), trip("2025-04-01", "2025-04-03"))
 }
 
-func TestCardEvidenceMakesATripOnlyAcrossANightWithNewPlacesAndGroundTransport(t *testing.T) {
+func TestCardEvidenceAloneMakesAPossibleTripOnlyAcrossANightWithNewPlacesAndGroundTransport(t *testing.T) {
 	for name, c := range map[string]struct {
 		txs  []Transaction
 		want []Trip
@@ -56,8 +67,11 @@ func TestCardEvidenceMakesATripOnlyAcrossANightWithNewPlacesAndGroundTransport(t
 		"new places only":                    {[]Transaction{inStore(1, "2025-05-10", -9, "CAFE FARCITY", "5812"), inStore(2, "2025-05-11", -9, "NOODLES FARCITY", "5812")}, nil},
 		"a single day with ground transport": {[]Transaction{inStore(1, "2025-05-10", -30, "RAIL FARCITY", "4111"), inStore(2, "2025-05-10", -9, "NOODLES FARCITY", "5812")}, nil},
 	} {
-		if got := infer(c.txs); !reflect.DeepEqual(got, c.want) && len(got)+len(c.want) > 0 {
-			t.Errorf("%s: trips = %+v, want %+v", name, got, c.want)
+		if got := infer(c.txs); len(got) != 0 {
+			t.Errorf("%s: trips = %+v, want none: card evidence alone is no trip", name, got)
+		}
+		if got := possible(c.txs); !reflect.DeepEqual(got, c.want) && len(got)+len(c.want) > 0 {
+			t.Errorf("%s: possible trips = %+v, want %+v", name, got, c.want)
 		}
 	}
 }
@@ -77,8 +91,9 @@ func TestRunsThreeDaysApartJoinWithoutHomeActivityBetweenAndSplitWithIt(t *testi
 
 func TestAReturnHomeEndsATrip(t *testing.T) {
 	txs := []Transaction{inStore(1, "2025-03-13", -30, "RAIL BIGCITY", "4111"), inStore(2, "2025-03-14", -9, "NOODLES BIGCITY", "5812")}
-	wantTrips(t, infer(txs, cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"), cal("2025-03-12", FlightBack, "FAR-HMT ZZ102")),
-		trip("2025-03-10", "2025-03-12"), trip("2025-03-13", "2025-03-14"))
+	calendar := []Evidence{cal("2025-03-10", FlightOut, "HMT-FAR ZZ101"), cal("2025-03-12", FlightBack, "FAR-HMT ZZ102")}
+	wantTrips(t, infer(txs, calendar...), trip("2025-03-10", "2025-03-12"))
+	wantTrips(t, possible(txs, calendar...), trip("2025-03-13", "2025-03-14"))
 }
 
 func TestATripStartsOnItsFlightOutNotOnNewPlacesBeforeIt(t *testing.T) {

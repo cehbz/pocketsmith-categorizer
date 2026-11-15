@@ -22,17 +22,21 @@ type Settings struct {
 	CashAccount string              // the account cash is withdrawn from
 }
 
-// Inferred is an inferred trip and the evidence it rests on.
+// Inferred is an inferred trip and the evidence it rests on. A possible trip rests on card
+// evidence alone: it is never listed, only shown to the user.
 type Inferred struct {
 	Trip
 	Evidence []Evidence
+	Possible bool
 }
 
-// Trips are the inferred trips.
+// Trips are the inferred trips, possible trips aside.
 func Trips(inferred []Inferred) []Trip {
-	out := make([]Trip, len(inferred))
-	for i, t := range inferred {
-		out[i] = t.Trip
+	var out []Trip
+	for _, t := range inferred {
+		if !t.Possible {
+			out = append(out, t.Trip)
+		}
 	}
 	return out
 }
@@ -67,23 +71,25 @@ func (r run) has(signs ...Sign) bool {
 // home reports whether r ends with a return home: nothing joins it.
 func (r run) home() bool { return r[len(r)-1].Sign == FlightBack }
 
-// away reports whether r is a trip: it has calendar evidence, or new or favourite places
-// with ground transport. A run on a single day without a stay is a day trip, which is home.
+// away reports whether r is a trip: it has calendar evidence and isn't a day trip, a run on a
+// single day without a stay, which is home.
 func (r run) away() bool {
-	if r.first().Equal(r.last()) && !r.has(Stay) {
-		return false
-	}
-	if slices.ContainsFunc(r, func(e Evidence) bool { return e.Source == FromCalendar }) {
-		return true
-	}
-	return r.has(NewPlace, FavouritePlace) && r.has(GroundTransport)
+	return !r.dayTrip() && slices.ContainsFunc(r, func(e Evidence) bool { return e.Source == FromCalendar })
 }
 
-// assemble finds the trips in evidence. Evidence no more than evidenceGap days apart is one
+// possible reports whether r is a possible trip: no calendar evidence, but new or favourite
+// places with ground transport on more than a day.
+func (r run) possible() bool {
+	return !r.dayTrip() && !r.away() && r.has(NewPlace, FavouritePlace) && r.has(GroundTransport)
+}
+
+func (r run) dayTrip() bool { return r.first().Equal(r.last()) && !r.has(Stay) }
+
+// assemble finds the trips and possible trips in evidence. Evidence no more than evidenceGap days apart is one
 // run; a flight leaving home starts a run and one returning ends it. Runs are joined across a
 // gap with no home activity in it, never across a return home and never into a flight leaving
-// home. A joined run that is away is a trip from its first evidence day to its last, named
-// for its first.
+// home. A joined run that is away, or possibly away, is a trip or a possible trip from its
+// first evidence day to its last, named for its first.
 func assemble(evidence []Evidence, home []time.Time) []Inferred {
 	evidence = slices.Clone(evidence)
 	slices.SortFunc(evidence, func(a, b Evidence) int {
@@ -108,8 +114,8 @@ func assemble(evidence []Evidence, home []time.Time) []Inferred {
 	}
 	var out []Inferred
 	for _, r := range joined {
-		if r.away() {
-			out = append(out, Inferred{Trip: Trip{Name: "trip-" + day.Format(r.first()), From: r.first(), To: r.last()}, Evidence: r})
+		if r.away() || r.possible() {
+			out = append(out, Inferred{Trip: Trip{Name: "trip-" + day.Format(r.first()), From: r.first(), To: r.last()}, Evidence: r, Possible: !r.away()})
 		}
 	}
 	return out

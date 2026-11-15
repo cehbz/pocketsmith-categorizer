@@ -289,9 +289,14 @@ func titled(p learn.Proposal, titles map[ledger.CategoryID]string) bool {
 
 func amendmentKey(id int64, source string) string { return fmt.Sprintf("amend %d %s", id, source) }
 
-// hintKey remembers that a notice counted h: the trip the user edited and the inferred span.
+// hintKey remembers that a notice counted h: the trip the user edited, or that it is a
+// possible trip, and the inferred span.
 func hintKey(h trips.Hint) string {
-	return fmt.Sprintf("hint %s %s..%s", h.Edited.Version(), day.Format(h.Inferred.From), day.Format(h.Inferred.To))
+	of := h.Edited.Version()
+	if h.Inferred.Possible {
+		of = "possible"
+	}
+	return fmt.Sprintf("hint %s %s..%s", of, day.Format(h.Inferred.From), day.Format(h.Inferred.To))
 }
 
 // unreadableKey remembers that a notice counted u, by its message.

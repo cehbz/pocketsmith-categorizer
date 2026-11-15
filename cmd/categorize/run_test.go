@@ -89,8 +89,8 @@ func (c *countingTrips) Save(list trips.List, written []trips.Trip) error {
 	return c.fakeTrips.Save(list, written)
 }
 
-// tripRun is a session over a card with a three-day trip from 2026-10-05: two in-store hotel
-// nights, a new restaurant and two taxi rides, a hotel refund after it, a flight booked before it and a
+// tripRun is a session over a card with a three-day trip from 2026-10-05: a calendar stay on
+// its first night, two in-store hotel nights, a new restaurant and two taxi rides, a hotel refund after it, a flight booked before it and a
 // grocer at home around it. Two new cafés on consecutive days at the start of the history
 // are inside the inference warm-up, so they make no trip.
 func tripRun(t *testing.T) (*session, *fakeLedger) {
@@ -121,7 +121,8 @@ func tripRun(t *testing.T) (*session, *fakeLedger) {
 	}}
 	start := mustParse("2026-10-01")
 	big := map[trips.Kind]ledger.CategoryID{trips.Transport: 101, trips.Lodging: 102, trips.Food: 103, trips.Discretionary: 104, trips.Cash: 105}
-	s := &session{ledger: l, titles: map[ledger.CategoryID]string{}, today: mustParse("2026-11-03"), card: c, accounts: []string{"Card"}, calendar: &fakeCalendar{},
+	stay := &fakeCalendar{events: []trips.Event{{Title: "Stay at Hotel Farcity", Location: "Farcity", Start: mustParse("2026-10-05"), End: mustParse("2026-10-05")}}}
+	s := &session{ledger: l, titles: map[ledger.CategoryID]string{}, today: mustParse("2026-11-03"), card: c, accounts: []string{"Card"}, calendar: stay,
 		receipts: &fakeMailbox{}, merchants: []evidence.Merchant{testGrab()}, loc: time.UTC,
 		attention: attention.Settings{Start: start, Size: attention.Size{Absolute: 1e9, SD: 1e3}},
 		trips:     trips.Settings{Kinds: trips.Kinds{Codes: trips.DefaultCodes(), Big: big}, Home: trips.Home{Places: []string{"HOMETOWN"}}, Start: start}}
@@ -386,9 +387,10 @@ func TestARunReportsTheTripsItAddsWithTheirEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "\nTrips Added\n  trip-2026-10-05 · Oct 5 – Oct 7\n" +
-		"    card  ground transport  TAXI FARCITY     Oct 5 – Oct 7\n" +
-		"    card  new place         TAXI FARCITY     Oct 5\n" +
-		"    card  new place         NOODLES FARCITY  Oct 6\n"
+		"    calendar  stay              Stay at Hotel Farcity  Oct 5\n" +
+		"    card      ground transport  TAXI FARCITY           Oct 5 – Oct 7\n" +
+		"    card      new place         TAXI FARCITY           Oct 5\n" +
+		"    card      new place         NOODLES FARCITY        Oct 6\n"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("report lacks %q:\n%s", want, out.String())
 	}
@@ -650,6 +652,29 @@ func TestATripHintMakesANoticeOnceAndStaysInTheReport(t *testing.T) {
 	}
 	if !strings.Contains(out, "\nTrip Hints\n  Farcity trip · Oct 6 – Oct 7 · inferred Oct 5 – Oct 7\n") {
 		t.Errorf("second run's report lacks the trip hint\n%s", out)
+	}
+}
+
+func TestCardEvidenceAloneIsAPossibleTripHintedOnceThatListsNothingAndPlacesNothing(t *testing.T) {
+	newRunner, store := runners(t)
+	s, l := tripRun(t)
+	s.calendar = &fakeCalendar{} // the stay that anchors the trip is gone
+	b := &fakeInbox{}
+	out := noticed(t, newRunner, s, b)
+	if len(store.list) != 0 || len(b.notices) != 1 || !strings.Contains(b.notices[0].Subject, "1 trip hint") {
+		t.Fatalf("first run: list %v, notices %+v; want no trip and one notice counting the hint\n%s", store.list, b.notices, out)
+	}
+	for _, tx := range l.txs {
+		if slices.ContainsFunc(tx.State.Labels, func(label string) bool { return strings.HasPrefix(label, "trip-2026-10") }) {
+			t.Errorf("transaction %d placed on %v; want no placement\n%s", tx.ID, tx.State.Labels, out)
+		}
+	}
+	out = noticed(t, newRunner, s, b)
+	if len(b.notices) != 1 {
+		t.Errorf("second run inserted %+v; want nothing new\n%s", b.notices[1:], out)
+	}
+	if !strings.Contains(out, "\nTrip Hints\n  possible trip · Oct 5 – Oct 7\n") {
+		t.Errorf("second run's report lacks the possible trip\n%s", out)
 	}
 }
 

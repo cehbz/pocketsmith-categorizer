@@ -97,17 +97,26 @@ func (l List) Update(inferred, written []Trip) (List, Listing) {
 	return out, c
 }
 
-// Hint is an inferred trip that overlaps a listed trip the user edited and reaches beyond it.
+// Hint is an inferred trip that overlaps a listed trip the user edited and reaches beyond it,
+// or a possible trip, which has no edited trip.
 type Hint struct {
 	Edited   Trip
 	Inferred Inferred
 }
 
 // Hints are the inferred trips that overlap a listed trip the user edited or listed by hand,
-// one not as written, and reach beyond its dates. The list is left as it is: the user decides.
+// one not as written, and reach beyond its dates, and the possible trips that overlap no
+// listed or written trip. The list is left as it is: the user decides.
 func (l List) Hints(inferred []Inferred, written []Trip) []Hint {
 	var out []Hint
 	for _, t := range inferred {
+		if t.Possible {
+			clash := func(o Trip) bool { return o.Overlaps(t.Trip) }
+			if !slices.ContainsFunc(l, clash) && !slices.ContainsFunc(written, clash) {
+				out = append(out, Hint{Inferred: t})
+			}
+			continue
+		}
 		for _, o := range l {
 			if o.Overlaps(t.Trip) && (t.From.Before(o.From) || t.To.After(o.To)) && !slices.ContainsFunc(written, o.Same) {
 				out = append(out, Hint{Edited: o, Inferred: t})

@@ -222,11 +222,16 @@ func (r Run) tripsAdded() section {
 	return s
 }
 
-// tripHints are the trips the user edited that inference reaches beyond.
+// tripHints are the trips the user edited that inference reaches beyond, and the possible
+// trips.
 func (r Run) tripHints() section {
 	s := section{title: "Trip Hints"}
 	for _, h := range r.Hints {
-		s.parts = append(s.parts, part{line: fmt.Sprintf("%s · inferred %s", r.trip(h.Edited), r.span(h.Inferred.From, h.Inferred.To))}, r.evidence(h.Inferred.Evidence))
+		line := fmt.Sprintf("%s · inferred %s", r.trip(h.Edited), r.span(h.Inferred.From, h.Inferred.To))
+		if h.Inferred.Possible {
+			line = "possible trip · " + r.span(h.Inferred.From, h.Inferred.To)
+		}
+		s.parts = append(s.parts, part{line: line}, r.evidence(h.Inferred.Evidence))
 	}
 	return s
 }
@@ -421,7 +426,11 @@ func WriteReplay(w io.Writer, r Replay) error {
 	}
 	p.f("trips inferred (%d):\n", len(r.Trips))
 	for _, t := range r.Trips {
-		p.inferred("  "+describeTrip(t.Trip), t.Evidence)
+		line := "  " + describeTrip(t.Trip)
+		if t.Possible {
+			line = "  possible " + describeTrip(t.Trip)
+		}
+		p.inferred(line, t.Evidence)
 	}
 	if a := r.Attention; a != nil {
 		all, without := make([]int, len(a.Weeks)), make([]int, len(a.Weeks))
